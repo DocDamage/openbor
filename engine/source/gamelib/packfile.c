@@ -224,6 +224,7 @@ int myfilenamecmp(const char *a, size_t asize, const char *b, size_t bsize)
     return -2; // should never be reached
 }
 
+#if WIN
 // Convert slashes (UNIX) to backslashes (DOS).
 // Return a pointer to buffer with filename converted to DOS format.
 static char *slashback(const char *sz)
@@ -242,6 +243,7 @@ static char *slashback(const char *sz)
     new[i] = 0;
     return new;
 }
+#endif
 
 #ifndef WIN
 // Convert backslashes (DOS) to forward slashes (everything else).
