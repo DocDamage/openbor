@@ -6,6 +6,7 @@
  * Copyright (c)  OpenBOR Team
  */
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -22,19 +23,29 @@
 * each variant type.
 */
 const s_script_variant_meta script_variant_meta_list[] = {
-    [VT_EMPTY] = {        
+    [VT_EMPTY] = {
         .id_string = "VT_EMPTY",
         .print_format = "%s",
     },
 
     [VT_INTEGER] = {
         .id_string = "VT_INTEGER",
-        .print_format = "%d",
+        .print_format = "%ld",
     },
 
-    [VT_DECIMAL] = {        
+    [VT_DECIMAL] = {
         .id_string = "VT_DECIMAL",
         .print_format = "%f",
+    },
+
+    [VT_INTEGER64] = {
+        .id_string = "VT_INTEGER64",
+        .print_format = "%lld",
+    },
+
+    [VT_UINTEGER64] = {
+        .id_string = "VT_UINTEGER64",
+        .print_format = "%llu",
     },
 
     [VT_PTR] = {
@@ -236,134 +247,341 @@ void ScriptVariant_ParseStringConstant(ScriptVariant *var, CHAR *str)
     var->strVal = StrCache_CreateNewFrom(str);
 }
 
-HRESULT ScriptVariant_IntegerValue(ScriptVariant *var, LONG *pVal)
-{
-    if(var->vt == VT_INTEGER)
-    {
-        *pVal = var->lVal;
-    }
-    else if(var->vt == VT_DECIMAL)
-    {
-        *pVal = (LONG)var->dblVal;
-    }
-    else
-    {
+/*
+* Caskey, Damon V.
+* Orginal author (Utunels?) and date unknown.
+* 
+* Reworked 2026-06-02 to safely fail on overflow
+* so script can support 64-bit integers.
+*
+* Get a 32-bit integer value from a variant. 
+* Will attempt to convert if possible. 
+*/
+HRESULT ScriptVariant_IntegerValue(ScriptVariant *var, LONG *pVal) {
+
+    long long temp;
+
+    if (!var || !pVal) {
         return E_FAIL;
     }
 
-    return S_OK;
+    switch (var->vt) {
+
+        case VT_INTEGER:
+            *pVal = var->lVal;
+            return S_OK;
+
+        case VT_DECIMAL:
+            *pVal = (LONG)var->dblVal;
+            return S_OK;
+
+        case VT_INTEGER64:
+            temp = var->llVal;
+
+            if (temp < (long long)LONG_MIN || temp > (long long)LONG_MAX) {
+                return E_FAIL;
+            }
+
+            *pVal = (LONG)temp;
+            return S_OK;
+
+        case VT_UINTEGER64:
+            if (var->ullVal > (unsigned long long)LONG_MAX) {
+                return E_FAIL;
+            }
+
+            *pVal = (LONG)var->ullVal;
+            return S_OK;
+
+    default:
+        return E_FAIL;
+    }
 }
 
+/*
+* Caskey, Damon V.
+* Orginal author (Utunels?) and date unknown.
+* 
+* Reworked 2026-06-02 to safely handle 64-bit 
+* integers.
+*
+* Get a decimal value from a variant. 
+* Will attempt to convert if possible. 
+*/
 HRESULT ScriptVariant_DecimalValue(ScriptVariant *var, DOUBLE *pVal)
 {
-    if(var->vt == VT_INTEGER)
-    {
-        *pVal = (DOUBLE)var->lVal;
-    }
-    else if(var->vt == VT_DECIMAL)
-    {
-        *pVal = var->dblVal;
-    }
-    else
-    {
+    if (!var || !pVal) {
         return E_FAIL;
     }
 
-    return S_OK;
-}
-
-
-BOOL ScriptVariant_IsTrue(ScriptVariant *svar)
-{
-    switch(svar->vt)
-    {
-    case VT_STR:
-        return StrCache_Get(svar->strVal)[0] != 0;
+    switch (var->vt) {
     case VT_INTEGER:
-        return svar->lVal != 0;
+        *pVal = (DOUBLE)var->lVal;
+        return S_OK;
+
+    case VT_INTEGER64:
+        *pVal = (DOUBLE)var->llVal;
+        return S_OK;
+
+    case VT_UINTEGER64:
+        *pVal = (DOUBLE)var->ullVal;
+        return S_OK;
+
     case VT_DECIMAL:
-        return svar->dblVal != 0.0;
-    case VT_PTR:
-        return svar->ptrVal != 0;
+        *pVal = var->dblVal;
+        return S_OK;
+
     default:
-        return 0;
+        return E_FAIL;
     }
 }
 
-void ScriptVariant_ToString(ScriptVariant *svar, LPSTR buffer )
-{
-    switch( svar->vt )
-    {
-    case VT_EMPTY:
-        sprintf( buffer, "<VT_EMPTY>   Unitialized" );
-        break;
-    case VT_INTEGER:
-        sprintf( buffer, "%ld", (long)svar->lVal);
-        break;
-    case VT_DECIMAL:
-        sprintf( buffer, "%lf", svar->dblVal );
-        break;
-    case VT_PTR:
-        sprintf(buffer, "#%ld", (long)(svar->ptrVal));
-        break;
-    case VT_STR:
-        sprintf(buffer, "%s", StrCache_Get(svar->strVal));
-        break;
-    default:
-        sprintf(buffer, "<Unprintable VARIANT type.>" );
-        break;
+/*
+* Caskey, Damon V.
+* 2026-06-02
+*
+* Get a 64-bit integer value from a variant. 
+* Will attempt to convert if possible. 
+*/
+HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, long long *pVal) {
+    if (!var || !pVal) {
+        return E_FAIL;
+    }
+
+    switch (var->vt) {
+        case VT_INTEGER:
+            *pVal = (long long)var->lVal;
+            return S_OK;
+
+        case VT_INTEGER64:
+            *pVal = var->llVal;
+            return S_OK;
+
+        case VT_UINTEGER64:
+            if (var->ullVal > (unsigned long long)LLONG_MAX) {
+                return E_FAIL;
+            }
+
+            *pVal = (long long)var->ullVal;
+            return S_OK;
+
+        case VT_DECIMAL:
+            *pVal = (long long)var->dblVal;
+            return S_OK;
+
+        default:
+        return E_FAIL;
     }
 }
 
-static int ScriptVariant_LengthAsString(ScriptVariant *svar)
-{
-    switch (svar->vt)
-    {
-    case VT_EMPTY:
-        return snprintf(NULL, 0, "<VT_EMPTY>   Unitialized");
+/*
+* Caskey, Damon V.
+* 2026-06-02
+*
+* Get an unsigned 64-bit integer value from a variant. 
+* Will attempt to convert if possible. 
+*/
+HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, unsigned long long *pVal) {
+    if (!var || !pVal) {
+        return E_FAIL;
+    }
+
+    switch (var->vt) {
     case VT_INTEGER:
-        return snprintf(NULL, 0, "%ld", (long)svar->lVal);
+        if (var->lVal < 0) {
+            return E_FAIL;
+        }
+
+        *pVal = (unsigned long long)var->lVal;
+        return S_OK;
+
+    case VT_INTEGER64:
+        if (var->llVal < 0) {
+            return E_FAIL;
+        }
+
+        *pVal = (unsigned long long)var->llVal;
+        return S_OK;
+
+    case VT_UINTEGER64:
+        *pVal = var->ullVal;
+        return S_OK;
+
     case VT_DECIMAL:
-        return snprintf(NULL, 0, "%lf", svar->dblVal);
-    case VT_PTR:
-        return snprintf(NULL, 0, "#%ld", (long)(svar->ptrVal));
-    case VT_STR:
-        // could use StrCache_Len instead to improve speed
-        return snprintf(NULL, 0, "%s", StrCache_Get(svar->strVal));
+        if (var->dblVal < 0.0) {
+            return E_FAIL;
+        }
+
+        *pVal = (unsigned long long)var->dblVal;
+        return S_OK;
+
     default:
-        return snprintf(NULL, 0, "<Unprintable VARIANT type.>");
+        return E_FAIL;
     }
 }
 
-// faster if it is not VT_STR
+/*
+* Caskey, Damon V.
+* Orginal author (Utunels?) and date unknown.
+* 
+* Reworked 2026-06-02 to handle 64-bit 
+* integers.
+*/
+BOOL ScriptVariant_IsTrue(ScriptVariant *svar) {
+    
+    switch(svar->vt) {
+
+        case VT_STR:
+            return StrCache_Get(svar->strVal)[0] != 0;
+
+        case VT_INTEGER:
+            return svar->lVal != 0;
+
+        case VT_INTEGER64:
+            return svar->llVal != 0;
+
+        case VT_UINTEGER64:
+            return svar->ullVal != 0;
+
+        case VT_DECIMAL:
+            return svar->dblVal != 0.0;
+
+        case VT_PTR:
+            return svar->ptrVal != 0;
+
+        default:
+            return 0;
+    }
+}
+
+/*
+* Caskey, Damon V.
+* Orginal author (Utunels?) and date unknown.
+* 
+* Reworked 2026-06-02 to handle 64-bit 
+* integers.
+*/
+void ScriptVariant_ToString(ScriptVariant *svar, LPSTR buffer) {
+    
+    switch( svar->vt ) {
+        case VT_EMPTY:
+            sprintf( buffer, "<VT_EMPTY> Unitialized" );
+            break;
+
+        case VT_INTEGER:
+            sprintf( buffer, "%ld", (long)svar->lVal);
+            break;
+
+        case VT_INTEGER64:
+            sprintf( buffer, "%lld", (long long)svar->llVal);
+            break;
+
+        case VT_UINTEGER64:
+            sprintf( buffer, "%llu", (unsigned long long)svar->ullVal);
+            break;
+
+        case VT_DECIMAL:
+            sprintf( buffer, "%lf", svar->dblVal );
+            break;
+
+        case VT_PTR:
+            sprintf(buffer, "#%ld", (long)(svar->ptrVal));
+            break;
+
+        case VT_STR:
+            sprintf(buffer, "%s", StrCache_Get(svar->strVal));
+            break;
+
+        default:
+            sprintf(buffer, "<Unprintable VARIANT type.>" );
+            break;
+    }
+}
+
+/*
+* Caskey, Damon V.
+* Orginal author (Utunels?) and date unknown.
+* 
+* Reworked 2026-06-02 to handle 64-bit integers.
+*
+* Get the length of a variant when converted to a string.
+*/
+static int ScriptVariant_LengthAsString(ScriptVariant *svar) {
+    
+    switch (svar->vt) {
+        case VT_EMPTY:
+            return snprintf(NULL, 0, "<VT_EMPTY> Unitialized");
+
+        case VT_INTEGER:
+            return snprintf(NULL, 0, "%ld", (long)svar->lVal);
+
+        case VT_INTEGER64:
+            return snprintf(NULL, 0, "%lld", (long long)svar->llVal);
+
+        case VT_UINTEGER64:
+            return snprintf(NULL, 0, "%llu", (unsigned long long)svar->ullVal);
+
+        case VT_DECIMAL:
+            return snprintf(NULL, 0, "%lf", svar->dblVal);
+
+        case VT_PTR:
+            return snprintf(NULL, 0, "#%ld", (long)(svar->ptrVal));
+
+        case VT_STR:
+            return snprintf(NULL, 0, "%s", StrCache_Get(svar->strVal));
+
+        default:
+            return snprintf(NULL, 0, "<Unprintable VARIANT type.>");
+    }
+}
+
+/*
+* Caskey, Damon V.
+* Orginal author (Utunels?) and date unknown.
+* 
+* Reworked 2026-06-02 to handle 64-bit integers.
+*
+* Copy a variant. Handles reference counting for
+* string types.
+*/
 void ScriptVariant_Copy(ScriptVariant *svar, ScriptVariant *rightChild )
 {
-    // collect the str cache index
     if(svar->vt == VT_STR)
     {
         StrCache_Collect(svar->strVal);
     }
-    switch( rightChild->vt )
-    {
-    case VT_INTEGER:
-        svar->lVal = rightChild->lVal;
-        break;
-    case VT_DECIMAL:
-        svar->dblVal = rightChild->dblVal;
-        break;
-    case VT_PTR:
-        svar->ptrVal = rightChild->ptrVal;
-        break;
-    case VT_STR:
-        svar->strVal = rightChild->strVal;
-        StrCache_Grab(svar->strVal);
-        break;
-    default:
-        //should not happen unless the variant is not intialized correctly
-        //borShutdown(1, "invalid variant type");
-        svar->ptrVal = NULL;
-        break;
+
+    switch( rightChild->vt ) {
+        case VT_INTEGER:
+            svar->lVal = rightChild->lVal;
+            break;
+
+        case VT_INTEGER64:
+            svar->llVal = rightChild->llVal;
+            break;
+
+        case VT_UINTEGER64:
+            svar->ullVal = rightChild->ullVal;
+            break;
+
+        case VT_DECIMAL:
+            svar->dblVal = rightChild->dblVal;
+            break;
+
+        case VT_PTR:
+            svar->ptrVal = rightChild->ptrVal;
+            break;
+
+        case VT_STR:
+            svar->strVal = rightChild->strVal;
+            StrCache_Grab(svar->strVal);
+            break;
+
+        default:
+            svar->ptrVal = NULL;
+            break;
     }
+
     svar->vt = rightChild->vt;
 }
 
@@ -854,20 +1072,26 @@ ScriptVariant *ScriptVariant_Mod( ScriptVariant *svar, ScriptVariant *rightChild
 
 void ScriptVariant_Inc_Op(ScriptVariant *svar )
 {
-    switch(svar->vt)
-    {
-    case VT_DECIMAL:
-        ++(svar->dblVal);
-        break;
-    case VT_INTEGER:
-        ++(svar->lVal);
-        break;
-    default:
-        break;
-    }
+    switch(svar->vt) {
+        case VT_DECIMAL:
+            ++(svar->dblVal);
+            break;
 
-    //Send back this ScriptVariant
-    //return svar;
+        case VT_INTEGER:
+            ++(svar->lVal);
+            break;
+
+        case VT_INTEGER64:
+            ++(svar->llVal);
+            break;
+
+        case VT_UINTEGER64:
+            ++(svar->ullVal);
+            break;
+
+        default:
+            break;
+    }
 }
 
 // i++
@@ -877,17 +1101,23 @@ ScriptVariant *ScriptVariant_Inc_Op2(ScriptVariant *svar )
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
     ScriptVariant_Copy(&retvar, svar);
 
-    switch(svar->vt)
-    {
-    case VT_DECIMAL:
-        svar->dblVal++;
-        break;
-    case VT_INTEGER:
-        svar->lVal++;
-        break;
-    default:
-        ScriptVariant_Clear(&retvar);
-        break;
+    switch(svar->vt) {
+
+        case VT_DECIMAL:
+            svar->dblVal++;
+            break;
+        case VT_INTEGER:
+            svar->lVal++;
+            break;
+        case VT_INTEGER64:
+            svar->llVal++;
+            break;
+        case VT_UINTEGER64:
+            svar->ullVal++;
+            break;
+        default:
+            ScriptVariant_Clear(&retvar);
+            break;
     }
 
     return &retvar;
@@ -897,20 +1127,27 @@ ScriptVariant *ScriptVariant_Inc_Op2(ScriptVariant *svar )
 
 void ScriptVariant_Dec_Op(ScriptVariant *svar )
 {
-    switch(svar->vt)
-    {
-    case VT_DECIMAL:
-        --(svar->dblVal);
-        break;
-    case VT_INTEGER:
-        --(svar->lVal);
-        break;
-    default:
-        break;
-    }
+    switch(svar->vt) {
 
-    //Send back this ScriptVariant
-    //return svar;
+        case VT_DECIMAL:
+            --(svar->dblVal);
+            break;
+
+        case VT_INTEGER:
+            --(svar->lVal);
+            break;
+
+        case VT_INTEGER64:
+            --(svar->llVal);
+            break;
+
+        case VT_UINTEGER64:
+            --(svar->ullVal);
+            break;
+
+        default:
+            break;
+    }
 }
 
 // i--
@@ -920,17 +1157,23 @@ ScriptVariant *ScriptVariant_Dec_Op2(ScriptVariant *svar )
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
     ScriptVariant_Copy(&retvar, svar);
 
-    switch(svar->vt)
-    {
-    case VT_DECIMAL:
-        svar->dblVal--;
-        break;
-    case VT_INTEGER:
-        svar->lVal--;
-        break;
-    default:
-        ScriptVariant_Clear(&retvar);
-        break;
+    switch(svar->vt) {
+
+        case VT_DECIMAL:
+            svar->dblVal--;
+            break;
+        case VT_INTEGER:
+            svar->lVal--;
+            break;
+        case VT_INTEGER64:
+            svar->llVal--;
+            break;
+        case VT_UINTEGER64:
+            svar->ullVal--;
+            break;
+        default:
+            ScriptVariant_Clear(&retvar);
+            break;
     }
 
     return &retvar;
@@ -954,19 +1197,37 @@ void ScriptVariant_Pos( ScriptVariant *svar)
 
 //-i
 
-void ScriptVariant_Neg( ScriptVariant *svar)
-{
+void ScriptVariant_Neg( ScriptVariant *svar) {
     switch(svar->vt)
     {
     case VT_DECIMAL:
         svar->dblVal = -(svar->dblVal);
-		break;
+        break;
+
     case VT_INTEGER:
         svar->lVal = -(svar->lVal);
+        break;
+
+    case VT_INTEGER64:
+        svar->llVal = -(svar->llVal);
+        break;
+
+    case VT_UINTEGER64:
+        /*
+        * Unsigned values cannot be meaningfully negated.
+        * Convert to signed only if it fits.
+        */
+        if (svar->ullVal <= (unsigned long long)LLONG_MAX) {
+            unsigned long long temp = svar->ullVal;
+
+            ScriptVariant_ChangeType(svar, VT_INTEGER64);
+            svar->llVal = -(long long)temp;
+        }
+        break;
+
     default:
         break;
     }
-    //return svar;
 }
 
 
@@ -983,11 +1244,23 @@ void ScriptVariant_Boolean_Not(ScriptVariant *svar )
 
 }
 
-void ScriptVariant_Bitwise_Not(ScriptVariant *svar )
-{
-    if (svar->vt == VT_INTEGER)
-    {
-        svar->lVal = ~(svar->lVal);
+void ScriptVariant_Bitwise_Not(ScriptVariant *svar ) {
+
+    switch (svar->vt) {
+        case VT_INTEGER:
+            svar->lVal = ~(svar->lVal);
+            break;
+
+        case VT_INTEGER64:
+            svar->llVal = ~(svar->llVal);
+            break;
+
+        case VT_UINTEGER64:
+            svar->ullVal = ~(svar->ullVal);
+            break;
+
+        default:
+            break;
     }
 }
 

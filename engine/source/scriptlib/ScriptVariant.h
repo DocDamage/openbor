@@ -11,27 +11,31 @@
 
 #include "depends.h"
 
-typedef enum VariantType
-{
-    VT_EMPTY    = 0,    //not initialized
-    VT_INTEGER  = 1,    //int/long
-    VT_DECIMAL  = 2,    //double
-    VT_PTR      = 5,    //void*
-    VT_STR      = 6,    //char*
+typedef enum VariantType {
+    
+    VT_EMPTY       = 0,    // not initialized
+    VT_INTEGER     = 1,    // LONG / legacy script integer
+    VT_DECIMAL     = 2,    // double
+    VT_INTEGER64   = 3,    // signed 64-bit integer
+    VT_UINTEGER64  = 4,    // unsigned 64-bit integer
+    VT_PTR         = 5,    // void*
+    VT_STR         = 6,    // char*
 } VARTYPE;
 
 #pragma pack(4)
 
-typedef struct ScriptVariant
-{
-    union//value
-    {
-        LONG          lVal;
-        VOID         *ptrVal;
-        DOUBLE        dblVal;
-        int           strVal;
+typedef struct ScriptVariant {
+    
+    union{
+        LONG                lVal;
+        long long           llVal;
+        unsigned long long  ullVal;
+        VOID               *ptrVal;
+        DOUBLE              dblVal;
+        int                 strVal;
     };
-    VARTYPE vt;//variatn type
+
+    VARTYPE vt;
 } ScriptVariant;
 
 /*
@@ -67,6 +71,8 @@ void ScriptVariant_ChangeType(ScriptVariant *var, VARTYPE cvt);
 void ScriptVariant_ParseStringConstant(ScriptVariant *var, CHAR *str);
 HRESULT ScriptVariant_IntegerValue(ScriptVariant *var, LONG *pVal);
 HRESULT ScriptVariant_DecimalValue(ScriptVariant *var, DOUBLE *pVal);
+HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, long long *pVal);
+HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, unsigned long long *pVal);
 BOOL ScriptVariant_IsTrue(ScriptVariant *svar);
 void ScriptVariant_ToString(ScriptVariant *svar, LPSTR buffer );
 
@@ -96,6 +102,7 @@ ScriptVariant *ScriptVariant_Shr( ScriptVariant *svar, ScriptVariant *rightChild
 ScriptVariant *ScriptVariant_Mul( ScriptVariant *svar, ScriptVariant *rightChild );
 ScriptVariant *ScriptVariant_Div( ScriptVariant *svar, ScriptVariant *rightChild );
 ScriptVariant *ScriptVariant_Mod( ScriptVariant *svar, ScriptVariant *rightChild );
+
 void ScriptVariant_Inc_Op(ScriptVariant *svar );
 ScriptVariant *ScriptVariant_Inc_Op2(ScriptVariant *svar );
 void ScriptVariant_Dec_Op(ScriptVariant *svar );
