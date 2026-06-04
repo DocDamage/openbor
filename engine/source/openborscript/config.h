@@ -24,7 +24,7 @@
 #include "global_config.h"
 #include "icon.h"
 #include "model.h"
-#include "recursive_damage.h"
+#include "recursive_effect.h"
 #include "spawn_hud.h"
 #include "status_dial.h"
 

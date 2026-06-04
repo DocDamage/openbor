@@ -7733,7 +7733,7 @@ s_recursive_effect* collision_attack_upsert_recursive_property(s_collision_attac
 
     /* Have a recursive property? If not we'll need to allocate it. */
     if (!cursor->recursive) {
-        cursor->recursive = recursive_damage_allocate_object();
+        cursor->recursive = recursive_effect_allocate_object();
     }
 
     /* Return pointer to the recrisve structure. */
@@ -8494,7 +8494,7 @@ s_attack* attack_clone_object(s_attack* source)
     * pointers.
     */
 
-    /* -- Recursive damage. */
+    /* -- Recursive effect. */
     if (source->recursive && source->recursive->mode)
     {
         result->recursive = malloc(sizeof(*result->recursive));
@@ -8549,7 +8549,7 @@ void attack_dump_object(s_attack* attack)
 
         if (attack->recursive)
         {
-            recursive_damage_dump_object(attack->recursive);
+            recursive_effect_dump_object(attack->recursive);
         }
 
         printf("\n\t ->seal: %d", attack->seal);
@@ -8715,10 +8715,10 @@ static inline unsigned int bitmask64_get_lowest_index(uint64_t mask) {
 * 2020-03-10
 * Caskey, Damon V
 *
-* allocate a recursive damage object and return
+* allocate a recursive effect object and return
 * its pointer.
 */
-s_recursive_effect* recursive_damage_allocate_object() {
+s_recursive_effect* recursive_effect_allocate_object() {
     s_recursive_effect* result;
     size_t memory_size;
 
@@ -8748,8 +8748,8 @@ s_recursive_effect* recursive_damage_allocate_object() {
 * If attack has any recursive effects, apply
 * them to entity accordingly.
 */
-void recursive_damage_check_apply(entity* ent, entity* other, s_attack* attack) {
-    s_recursive_effect* recursive_damage;
+void recursive_effect_check_apply(entity* ent, entity* other, s_attack* attack) {
+    s_recursive_effect* recursive_effect;
     unsigned int index;
     uint64_t active_flag; // Bit flag for current index.
 
@@ -8766,7 +8766,7 @@ void recursive_damage_check_apply(entity* ent, entity* other, s_attack* attack) 
     /*
     * Check if index is within valid range.
     */
-    if (index >= MAX_RECURSIVE_DAMAGE) {
+    if (index >= MAX_RECURSIVE_EFFECTS) {
         return;
     }
 
@@ -8785,33 +8785,33 @@ void recursive_damage_check_apply(entity* ent, entity* other, s_attack* attack) 
 
     /*
     * Mark this slot active and get the resident
-    * recursive damage object.
+    * recursive effect object.
     */
-    ent->recursive_damage_active |= active_flag;
-    recursive_damage = &ent->recursive_effect_list[index];
+    ent->recursive_effect_active |= active_flag;
+    recursive_effect = &ent->recursive_effect_list[index];
 
     /*
-    * Populate the resident recursive damage slot
+    * Populate the resident recursive effect slot
     * with attack recursive values.
     */
-    recursive_damage->meta_tag = attack->recursive->meta_tag;
-    //recursive_damage->meta_data = attack->recursive->meta_data;
-    recursive_damage->mode = attack->recursive->mode;
-    recursive_damage->index = attack->recursive->index;
-    recursive_damage->time = _time + (attack->recursive->time * GAME_SPEED / 100);
-    recursive_damage->force = attack->recursive->force;
-    recursive_damage->rate = attack->recursive->rate;
-    recursive_damage->owner = other;
+    recursive_effect->meta_tag = attack->recursive->meta_tag;
+    //recursive_effect->meta_data = attack->recursive->meta_data;
+    recursive_effect->mode = attack->recursive->mode;
+    recursive_effect->index = attack->recursive->index;
+    recursive_effect->time = _time + (attack->recursive->time * GAME_SPEED / 100);
+    recursive_effect->force = attack->recursive->force;
+    recursive_effect->rate = attack->recursive->rate;
+    recursive_effect->owner = other;
 
     /*
     * If recursive type is none, that means use
     * the same type as the original attack.
     */
     if (attack->recursive->type == ATK_NONE) {
-        recursive_damage->type = attack->attack_type;
+        recursive_effect->type = attack->attack_type;
     }
     else {
-        recursive_damage->type = attack->recursive->type;
+        recursive_effect->type = attack->recursive->type;
     }
 }
 
@@ -8819,22 +8819,21 @@ void recursive_damage_check_apply(entity* ent, entity* other, s_attack* attack) 
 * Caskey, Damon V
 * 2020-03-12
 *
-* Send all recursive damage data to log for debugging.
+* Send all recursive effect data to log for debugging.
 */
-void recursive_damage_dump_object(s_recursive_effect* recursive)
-{
+void recursive_effect_dump_object(s_recursive_effect* recursive) {
     printf("\n\n -- Recursive (%p) dump --", recursive);
 
     if (recursive) {
         printf("\n\t ->force: %d", recursive->force);
-        printf("\n\t ->index: %d", recursive->index);
+        printf("\n\t ->index: %u", recursive->index);
         //printf("\n\t ->meta_data: %p", recursive->meta_data);
         printf("\n\t ->meta_tag: %lld", (long long)recursive->meta_tag);
         printf("\n\t ->mode: %d", recursive->mode);
         printf("\n\t ->owner: %p", recursive->owner);
-        printf("\n\t ->rate: %d", recursive->rate);
-        printf("\n\t ->tick: %d", recursive->tick);
-        printf("\n\t ->time: %d", recursive->time);
+        printf("\n\t ->rate: %u", recursive->rate);
+        printf("\n\t ->tick: %lu", recursive->tick);
+        printf("\n\t ->time: %lu", recursive->time);
         printf("\n\t ->type: %d", recursive->type);
     }
 
@@ -8847,8 +8846,7 @@ void recursive_damage_dump_object(s_recursive_effect* recursive)
 *
 * Wrapper for deleting a recrusive object's data.
 */
-void recursive_damage_free_object(s_recursive_effect* target)
-{
+void recursive_effect_free_object(s_recursive_effect* target) {
     free(target);
 }
 
@@ -8856,9 +8854,9 @@ void recursive_damage_free_object(s_recursive_effect* target)
 * Caskey, Damon V.
 * 2026-06-01
 *
-* Get recursive damage mode flag from text argument.
+* Get recursive effect mode flag from text argument.
 */
-static inline e_damage_recursive_logic recursive_damage_get_mode_flag_from_argument(const char* value) {
+static inline e_damage_recursive_logic recursive_effect_get_mode_flag_from_argument(const char* value) {
 
     static const struct {
         const char* name;
@@ -8905,7 +8903,7 @@ static inline e_damage_recursive_logic recursive_damage_get_mode_flag_from_argum
 * command and outputs integer with appropriate
 * bits toggled.
 */
-e_damage_recursive_logic recursive_damage_get_mode_setup_from_arg_list(ArgList* arglist)
+e_damage_recursive_logic recursive_effect_get_mode_setup_from_arg_list(ArgList* arglist)
 {
     e_damage_recursive_logic result = 0;
 
@@ -8920,7 +8918,7 @@ e_damage_recursive_logic recursive_damage_get_mode_setup_from_arg_list(ArgList* 
 
     for (i = 1; (value = GET_ARGP(i)) && value[0]; i++)
     {
-        result |= recursive_damage_get_mode_flag_from_argument(value);
+        result |= recursive_effect_get_mode_flag_from_argument(value);
     }
 
     return result;
@@ -8936,8 +8934,7 @@ e_damage_recursive_logic recursive_damage_get_mode_setup_from_arg_list(ArgList* 
 * support of the very poorly conceived mode
 * flag originally coded by yours truly.
 */
-e_damage_recursive_logic recursive_damage_get_mode_setup_from_legacy_argument(e_damage_recursive_cmd_read value)
-{
+e_damage_recursive_logic recursive_effect_get_mode_setup_from_legacy_argument(e_damage_recursive_cmd_read value) {
     e_damage_recursive_logic result = DAMAGE_RECURSIVE_MODE_NONE;
 
     switch (value)
@@ -8971,17 +8968,16 @@ e_damage_recursive_logic recursive_damage_get_mode_setup_from_legacy_argument(e_
 * 2009-06-17
 * --2018-01-02 retooled from former common_dot.
 * --2019-01-16 Replace recursion array with linked list.
-* --2026-06-01 Replace linked list with resident array and bitmask scan.
+* --2026-06-01 Restore resident array and add bitmask scan.
 *
-* Apply recursive damage (damage over time (dot)).
+* Apply recursive effect (damage over time (dot)).
 */
-void recursive_entity_effect_update(entity* ent)
-{
+void recursive_entity_effect_update(entity* ent) {
     s_attack attack;                    // Attack structure.
     s_defense* defense_object = NULL;   // Defense properties.
-    s_recursive_effect* cursor = NULL;  // Current recursive damage slot.
+    s_recursive_effect* cursor = NULL;  // Current recursive effect slot.
     s_recursive_effect snapshot;        // Snapshot of current recursive effect slot.
-    uint64_t scan_mask;                 // Local copy of active recursive damage mask.
+    uint64_t scan_mask;                 // Local copy of active recursive effect mask.
 
     /*
     * Safety check. No entity means nothing to update.
@@ -8995,10 +8991,10 @@ void recursive_entity_effect_update(entity* ent)
     * to process currently active slots once, even
     * if the entity mask changes during this update.
     */
-    scan_mask = ent->recursive_damage_active;
+    scan_mask = ent->recursive_effect_active;
 
     /*
-    * Iterate active recursive damage slots.
+    * Iterate active recursive effect slots.
     */
     while (scan_mask) {
         unsigned int index;
@@ -9029,13 +9025,13 @@ void recursive_entity_effect_update(entity* ent)
         /*
         * Defensive guard against mask/data mismatch.
         */
-        if (index >= MAX_RECURSIVE_DAMAGE) {
-            ent->recursive_damage_active &= ~active_flag;
+        if (index >= MAX_RECURSIVE_EFFECTS) {
+            ent->recursive_effect_active &= ~active_flag;
             continue;
         }
 
         /*
-        * Get the recursive damage slot.
+        * Get the recursive effect slot.
         */
         cursor = &ent->recursive_effect_list[index];
 
@@ -9044,7 +9040,7 @@ void recursive_entity_effect_update(entity* ent)
         * loop iteration.
         */
         if (_time > cursor->time) {
-            ent->recursive_damage_active &= ~active_flag;
+            ent->recursive_effect_active &= ~active_flag;
             memset(cursor, 0, sizeof(*cursor));
             cursor->type = ATK_NONE;
             continue;
@@ -9080,7 +9076,7 @@ void recursive_entity_effect_update(entity* ent)
         cursor->tick = _time + (snapshot.rate * GAME_SPEED / 100);
 
         /*
-        * Does this recursive damage affect MP?
+        * Does this recursive effect affect MP?
         */
         if (snapshot.mode & DAMAGE_RECURSIVE_MODE_MP) {
 
@@ -9098,7 +9094,7 @@ void recursive_entity_effect_update(entity* ent)
         }
 
         /*
-        * Does this recursive damage affect HP?
+        * Does this recursive effect affect HP?
         */
         if (snapshot.mode & DAMAGE_RECURSIVE_MODE_HP) {
 
@@ -9109,7 +9105,7 @@ void recursive_entity_effect_update(entity* ent)
             * any time we want to damage a target, but because
             * it breaks grabs and would spam the HUD,
             * takedamage() is not tenable for every tick
-            * of a recursive damage effect. However, we DO want
+            * of a recursive effect effect. However, we DO want
             * the owner to get credit, grabs to be broken, HUD
             * to react, etc., if the target is KO'd.
             *
@@ -9150,7 +9146,7 @@ void recursive_entity_effect_update(entity* ent)
             if (attack.attack_force >= ent->energy_state.health_current) {
 
                 /*
-                * Is this recursive damage allowed to KO?
+                * Is this recursive effect allowed to KO?
                 */
                 if (!(snapshot.mode & DAMAGE_RECURSIVE_MODE_NON_LETHAL)) {
 
@@ -9165,12 +9161,12 @@ void recursive_entity_effect_update(entity* ent)
                         ent->takedamage(snapshot.owner, &attack, 0, defense_object);
 
                     } else {
-                        kill_entity(ent, KILL_ENTITY_TRIGGER_RECURSIVE_DAMAGE);
+                        kill_entity(ent, KILL_ENTITY_TRIGGER_RECURSIVE_EFFECT);
                     }
 
                 } else {
                     /*
-                    * Recursive damage is not allowed to KO.
+                    * Recursive effect is not allowed to KO.
                     * Just set target's HP to minimum value.
                     */
                     ent->energy_state.health_current = 1;
@@ -12852,6 +12848,8 @@ s_model *load_cached_model(char *name, char *owner, char unload)
 
     unsigned* mapflag = NULL;  // in 24bit mode, we need to know whether a colourmap is a common map or a palette
 
+    char alert_buffer[128] = { 0 }; // So we can concatenate specifics *like range max/min* into alert messages.
+
     const char pre_text[] =   // this is the skeleton of frame function
     {
         "void main()\n"
@@ -15873,7 +15871,20 @@ s_model *load_cached_model(char *name, char *owner, char unload)
 
             case CMD_MODEL_COLLISION_DAMAGE_RECURSIVE_INDEX:
                 
-                collision_attack_upsert_recursive_property(&temp_collision_head, temp_collision_index)->index = GET_INT_ARG(1);
+                tempInt = GET_INT_ARG(1);
+
+                if(tempInt < 0 || tempInt >= MAX_RECURSIVE_EFFECTS) {
+
+                    snprintf(alert_buffer, sizeof(alert_buffer), "Recursive index (%d) out of range (0 - %d).",
+                        tempInt, MAX_RECURSIVE_EFFECTS - 1);
+
+                    shutdownmessage = alert_buffer;
+                    goto lCleanup;
+                }
+
+                collision_attack_upsert_recursive_property(&temp_collision_head, temp_collision_index)->index = tempInt;
+
+                tempInt = 0;
 
                 break;
 
@@ -15885,7 +15896,7 @@ s_model *load_cached_model(char *name, char *owner, char unload)
                 *
                 * For legacy support of mode, we have to handle
                 * integer values differently because like a bonehead,
-                * I didn�t originally set them up with bitwise
+                * I didn't originally set them up with bitwise
                 * logic in mind.
                 */
 
@@ -15900,7 +15911,7 @@ s_model *load_cached_model(char *name, char *owner, char unload)
 
                     tempInt = GET_INT_ARG(1);
 
-                    tempInt  = recursive_damage_get_mode_setup_from_legacy_argument(tempInt);                    
+                    tempInt  = recursive_effect_get_mode_setup_from_legacy_argument(tempInt);                    
                 }
                 else
                 {
@@ -15908,7 +15919,7 @@ s_model *load_cached_model(char *name, char *owner, char unload)
                     * Toggle bits based on items provided in argument list.
                     */
 
-                    tempInt = recursive_damage_get_mode_setup_from_arg_list(&arglist);
+                    tempInt = recursive_effect_get_mode_setup_from_arg_list(&arglist);
                 }
 
 
@@ -16652,7 +16663,7 @@ s_model *load_cached_model(char *name, char *owner, char unload)
 
                     tempInt = GET_INT_ARG(1);
 
-                    tempInt = recursive_damage_get_mode_setup_from_legacy_argument(tempInt);
+                    tempInt = recursive_effect_get_mode_setup_from_legacy_argument(tempInt);
                 }
                 else
                 {
@@ -16660,7 +16671,7 @@ s_model *load_cached_model(char *name, char *owner, char unload)
                     * Toggle bits based on items provided in argument list.
                     */
 
-                    tempInt = recursive_damage_get_mode_setup_from_arg_list(&arglist);
+                    tempInt = recursive_effect_get_mode_setup_from_arg_list(&arglist);
                 }
 
                 /* Send resulting bitwise integer to mode value. */
@@ -32373,7 +32384,7 @@ void checkdamageeffects(s_attack *attack)
     }
 
 	// Apply any recursive (damage over time) effects.
-	recursive_damage_check_apply(self, opp, attack);
+	recursive_effect_check_apply(self, opp, attack);
 
 	// Static enemies/nodrop enemies cannot be knocked down
     if(self->modeldata.pain_config_flags & PAIN_CONFIG_FALL_DISABLE)

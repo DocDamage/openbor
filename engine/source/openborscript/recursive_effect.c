@@ -11,7 +11,7 @@
  // Use string property argument to find an
  // integer property constant and populate
  // varlist->lval.
-int mapstrings_recursive_damage_property(ScriptVariant **varlist, int paramCount)
+int mapstrings_recursive_effect_property(ScriptVariant **varlist, int paramCount)
 {
 #define ARG_MINIMUM     2   // Minimum number of arguments allowed in varlist.
 #define ARG_PROPERTY    1   // Varlist element carrying which property is requested.
@@ -43,8 +43,8 @@ int mapstrings_recursive_damage_property(ScriptVariant **varlist, int paramCount
 	}
 
 	// See macro - will return 0 on fail.
-	MAPSTRINGS(varlist[ARG_PROPERTY], proplist, _RECURSIVE_DAMAGE_END,
-		"\n\n Error: '%s' is not a known recursive damage property.\n");
+	MAPSTRINGS(varlist[ARG_PROPERTY], proplist, _RECURSIVE_EFFECT_END,
+		"\n\n Error: '%s' is not a known recursive effect property.\n");
 
 
 	// If we made it this far everything should be OK.
@@ -61,15 +61,15 @@ int mapstrings_recursive_damage_property(ScriptVariant **varlist, int paramCount
 // Return a property. Requires
 // a pointer and property name to
 // access.
-HRESULT openbor_get_recursive_damage_property(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCount)
+HRESULT openbor_get_recursive_effect_property(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCount)
 {
-#define SELF_NAME       "openbor_get_recursive_damage_property(void handle, char property)"
+#define SELF_NAME       "openbor_get_recursive_effect_property(void handle, char property)"
 #define ARG_MINIMUM     2   // Minimum required arguments.
 #define ARG_OBJECT      0   // Handle (pointer to property structure).
 #define ARG_PROPERTY    1   // Property to access.
 
 	s_recursive_effect		*handle = NULL; // Property handle.
-	e_recursive_damage_properties    property = 0;    // Property argument.
+	e_recursive_effect_properties    property = 0;    // Property argument.
 
 	// Clear pass by reference argument used to send
 	// property data back to calling script.     .
@@ -94,28 +94,28 @@ HRESULT openbor_get_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 	switch (property)
 	{
-	case _RECURSIVE_DAMAGE_FORCE:
+	case _RECURSIVE_EFFECT_FORCE:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->force;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_INDEX:
+	case _RECURSIVE_EFFECT_INDEX:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->force;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_MODE:
+	case _RECURSIVE_EFFECT_MODE:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->index;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_OWNER:
+	case _RECURSIVE_EFFECT_OWNER:
 
 		if (handle->owner)
 		{
@@ -125,35 +125,35 @@ HRESULT openbor_get_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_RATE:
+	case _RECURSIVE_EFFECT_RATE:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->rate;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TAG:
+	case _RECURSIVE_EFFECT_TAG:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->meta_tag;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TICK:
+	case _RECURSIVE_EFFECT_TICK:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->tick;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TIME:
+	case _RECURSIVE_EFFECT_TIME:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->time;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TYPE:
+	case _RECURSIVE_EFFECT_TYPE:
 
 		ScriptVariant_ChangeType(*pretvar, VT_INTEGER);
 		(*pretvar)->lVal = (LONG)handle->type;
@@ -189,9 +189,9 @@ error_local:
 // Mutate a entity property. Requires
 // the pointer, a string property
 // name, and new value.
-HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCount)
+HRESULT openbor_set_recursive_effect_property(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCount)
 {
-#define SELF_NAME           "openbor_set_recursive_damage_property(void handle, char property, value)"
+#define SELF_NAME           "openbor_set_recursive_effect_property(void handle, char property, value)"
 #define ARG_MINIMUM         3   // Minimum required arguments.
 #define ARG_OBJECT          0   // Handle (pointer to property structure).
 #define ARG_PROPERTY        1   // Property to access.
@@ -199,7 +199,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 	int								result	= S_OK;	// Success or error?
 	s_recursive_effect				*handle		= NULL;	// Property handle.
-	e_recursive_damage_properties	property	= 0;	// Property to access.
+	e_recursive_effect_properties	property	= 0;	// Property to access.
 
 	// Value carriers to apply on properties after
 	// taken from argument.
@@ -224,7 +224,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 	switch (property)
 	{
 
-	case _RECURSIVE_DAMAGE_FORCE:
+	case _RECURSIVE_EFFECT_FORCE:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{
@@ -233,7 +233,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_INDEX:
+	case _RECURSIVE_EFFECT_INDEX:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{
@@ -242,7 +242,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_MODE:
+	case _RECURSIVE_EFFECT_MODE:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{
@@ -251,13 +251,13 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_OWNER:
+	case _RECURSIVE_EFFECT_OWNER:
 
 		handle->owner = (entity *)varlist[ARG_VALUE]->ptrVal;
 
 		break;
 
-	case _RECURSIVE_DAMAGE_RATE:
+	case _RECURSIVE_EFFECT_RATE:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{
@@ -266,7 +266,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TAG:
+	case _RECURSIVE_EFFECT_TAG:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{
@@ -275,7 +275,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TICK:
+	case _RECURSIVE_EFFECT_TICK:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{
@@ -284,7 +284,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TIME:
+	case _RECURSIVE_EFFECT_TIME:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{
@@ -293,7 +293,7 @@ HRESULT openbor_set_recursive_damage_property(ScriptVariant **varlist, ScriptVar
 
 		break;
 
-	case _RECURSIVE_DAMAGE_TYPE:
+	case _RECURSIVE_EFFECT_TYPE:
 
 		if (SUCCEEDED(ScriptVariant_IntegerValue(varlist[ARG_VALUE], &temp_int)))
 		{

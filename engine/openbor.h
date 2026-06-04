@@ -82,7 +82,7 @@
 #define		MAX_ATTACKS			    4					// Total number of attacks players have
 #define     MAX_FOLLOWS             4					// For followup animations
 #define     MAX_COLLISIONS          2                   // Collision boxes.
-#define     MAX_RECURSIVE_DAMAGE    64					// Max number of times an attack can hit the same entity recursively (Ie. multi-hit attacks).
+#define     MAX_RECURSIVE_EFFECTS   16					// Max number of recursive effects on an entity at a time.
 #define		MAX_ARG_LEN			    512
 #define		MAX_ALLOWSELECT_LEN	    1024
 #define		MAX_SELECT_LOADS   	    512
@@ -1369,7 +1369,7 @@ typedef enum e_kill_entity_trigger
     KILL_ENTITY_TRIGGER_OBSTACLE_FALL_NO_DEATH_ANIMATION,
     KILL_ENTITY_TRIGGER_OBSTACLE_FLY_OUT_OF_BOUNDS,
     KILL_ENTITY_TRIGGER_OUT_OF_BOUNDS,
-    KILL_ENTITY_TRIGGER_RECURSIVE_DAMAGE,
+    KILL_ENTITY_TRIGGER_RECURSIVE_EFFECT,
     KILL_ENTITY_TRIGGER_PARENT_KILL_ALL,
     KILL_ENTITY_TRIGGER_PARENT_KILL_SUMMON,
     KILL_ENTITY_TRIGGER_PIT,
@@ -1442,8 +1442,8 @@ typedef enum
 // Caskey, Damon V.
 //
 // Legacy values for backward compatability. These are used to 
-// interpret the recursive damage command from author. Then we
-// populate the recursive damage mode with a set of bit values 
+// interpret the recursive effect command from author. Then we
+// populate the recursive effect mode with a set of bit values 
 // from e_damage_recursive_logic accordingly. 
 typedef enum
 {
@@ -2014,7 +2014,7 @@ typedef struct
 // Caskey, Damon V.
 // 2016-10-31
 //
-// Recursive damage structure
+// Recursive effect structure
 // for attack boxes and damage 
 // recipient.
 typedef struct s_recursive_effect {
@@ -2026,7 +2026,7 @@ typedef struct s_recursive_effect {
     unsigned long   			tick;   // Time of next tick.
     unsigned long				time;   // Time to expire.
 	e_attack_types				type;	// Attack type.
-	struct entity				*owner;	// Entity that caused the recursive damage.
+	struct entity				*owner;	// Entity that caused the recursive effect.
 
     // Meta data.
     //s_meta_data*              meta_data;              // User defiend data.
@@ -2282,7 +2282,7 @@ typedef struct
     s_axis_principal_float            dropv;              // Velocity of target if knocked down.
     s_damage_on_landing damage_on_landing;  // Cause damage when target entity lands from fall.
     s_staydown          staydown;           // Modify victum's stayodwn properties.
-    s_recursive_effect  *recursive;         // Set up recursive damage (dot) on hit.
+    s_recursive_effect  *recursive;         // Set up recursive effect (dot) on hit.
 
     // Meta data.
     s_meta_data*        meta_data;              // User defiend data.
@@ -3585,7 +3585,7 @@ typedef struct entity
     s_faction               faction;                            // Can hit, hostile to, etc.
     s_model					modeldata;							// model data copied here ~~
 	s_jump					jump;								// Jumping velocity and animationnid. ~~	
-	s_recursive_effect      recursive_effect_list[MAX_RECURSIVE_DAMAGE]; // Array of recursive damage effects on entity. ~~
+	s_recursive_effect      recursive_effect_list[MAX_RECURSIVE_EFFECTS]; // Array of recursive effect effects on entity. ~~
     s_rush					rush;								// Rush combo display. ~~
 
 	// Structured pointers.
@@ -3628,7 +3628,7 @@ typedef struct entity
 	float					speedmul;							// Final multiplier for movement/velocity. ~~
 
     // Big int values.
-    uint64_t                recursive_damage_active;            // Bitmap of currently active recursive damage indices.
+    uint64_t                recursive_effect_active;            // Bitmap of currently active recursive effect indices.
 	
     // Size defined ints (for time).
     unsigned long	        combotime;							// If not expired, continue to next attack in series combo. ~~
@@ -4076,13 +4076,13 @@ void offense_apply_setup_to_property(char* filename, char* command, s_offense* o
 void offense_setup_from_arg(char* filename, char* command, s_offense* target_offense, ArgList* arglist, e_offense_parameters target_parameter);
 int offense_result_damage(s_offense* offense_object, int attack_force);
 
-/* Recursive damage. */
-s_recursive_effect*         recursive_damage_allocate_object();
-void                        recursive_damage_check_apply(entity* ent, entity* other, s_attack* attack);
-void                        recursive_damage_dump_object(s_recursive_effect* recursive);
-void                        recursive_damage_free_object(s_recursive_effect* target);
-e_damage_recursive_logic    recursive_damage_get_mode_setup_from_arg_list(ArgList* arglist);
-e_damage_recursive_logic    recursive_damage_get_mode_setup_from_legacy_argument(e_damage_recursive_cmd_read value);
+/* Recursive effect. */
+s_recursive_effect*         recursive_effect_allocate_object();
+void                        recursive_effect_check_apply(entity* ent, entity* other, s_attack* attack);
+void                        recursive_effect_dump_object(s_recursive_effect* recursive);
+void                        recursive_effect_free_object(s_recursive_effect* target);
+e_damage_recursive_logic    recursive_effect_get_mode_setup_from_arg_list(ArgList* arglist);
+e_damage_recursive_logic    recursive_effect_get_mode_setup_from_legacy_argument(e_damage_recursive_cmd_read value);
 
 /* Blocking logic. */
 e_block_config_flags block_get_config_flags_from_arguments(const ArgList* arglist);
@@ -4225,7 +4225,7 @@ typedef struct
     unsigned                    idle;           // TRUE = Set idle status during frame.
     s_collision_entity*         ebox;           // "Entity" box added by WD. To be removed.
     s_hitbox*                   entity_coords;  // Coordinates for "Entity" box. To be removed.
-    s_recursive_effect*         recursive;      // Recursive damage properties for attack.
+    s_recursive_effect*         recursive;      // Recursive effect properties for attack.
     s_move*                     move;           // Move <n> horizontal pixels on frame.
     float*                      platform;       // Platform coordinates.
     int                         frameshadow;    // TRUE = Display shadow during frame.

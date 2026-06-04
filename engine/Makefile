@@ -321,7 +321,7 @@ SCRIPT_BUILTINS = source/openborscript/commands.o                               
                   source/openborscript/model.o                                                      \
                   source/openborscript/spawn_hud.o                                                  \
                   source/openborscript/status_dial.o                                               \
-				  source/openborscript/recursive_damage.o											\
+				  source/openborscript/recursive_effect.o											\
                   source/openborscript/string.o
 RAM             = source/ramlib/ram.o
 RAND	        = source/randlib/rand32.o

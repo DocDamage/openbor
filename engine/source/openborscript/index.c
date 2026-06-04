@@ -396,14 +396,14 @@ const char *Script_GetFunctionName(void *functionRef)
         return "set_attack_property";
     }
 
-	// Recursive damage.
-	else if (functionRef == ((void *)openbor_get_recursive_damage_property))
+	// Recursive effect.
+	else if (functionRef == ((void *)openbor_get_recursive_effect_property))
 	{
-	return "get_recursive_damage_property";
+	return "get_recursive_effect_property";
 	}
-	else if (functionRef == ((void *)openbor_set_recursive_damage_property))
+	else if (functionRef == ((void *)openbor_set_recursive_effect_property))
 	{
-	return "set_recursive_damage_property";
+	return "set_recursive_effect_property";
 	}
 
     // Body collision (bbox)
@@ -1063,13 +1063,13 @@ void *Script_GetStringMapFunction(void *functionRef)
     {
         return (void *)mapstrings_playerproperty;
     }
-	else if (functionRef == ((void *)openbor_get_recursive_damage_property))
+	else if (functionRef == ((void *)openbor_get_recursive_effect_property))
 	{
-		return (void *)mapstrings_recursive_damage_property;
+		return (void *)mapstrings_recursive_effect_property;
 	}
-	else if (functionRef == ((void *)openbor_set_recursive_damage_property))
+	else if (functionRef == ((void *)openbor_set_recursive_effect_property))
 	{
-		return (void *)mapstrings_recursive_damage_property;
+		return (void *)mapstrings_recursive_effect_property;
 	}
 
     // Axis
@@ -1331,11 +1331,11 @@ void Script_LoadSystemFunctions()
     List_InsertAfter(&theFunctionList,
                      (void *)openbor_set_attack_property, "set_attack_property");
 
-	// Recursive damage properties.
+	// Recursive effect properties.
 	List_InsertAfter(&theFunctionList,
-		(void *)openbor_get_recursive_damage_property, "get_recursive_damage_property");
+		(void *)openbor_get_recursive_effect_property, "get_recursive_effect_property");
 	List_InsertAfter(&theFunctionList,
-		(void *)openbor_set_recursive_damage_property, "set_recursive_damage_property");
+		(void *)openbor_set_recursive_effect_property, "set_recursive_effect_property");
 
     // Body collision (bbox) properties.
     List_InsertAfter(&theFunctionList,

@@ -106,8 +106,8 @@
 		84A6B9CA297552A900449BB1 /* layer.c in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B9B0297552A700449BB1 /* layer.c */; };
 		84A6B9CB297552A900449BB1 /* level.c in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B9B1297552A700449BB1 /* level.c */; };
 		84A6B9CC297552A900449BB1 /* math.c in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B9B2297552A700449BB1 /* math.c */; };
-		84A6B9CD297552A900449BB1 /* recursive_damage.c in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B9B3297552A700449BB1 /* recursive_damage.c */; };
-		84A6B9CE297552A900449BB1 /* recursive_damage.h in Headers */ = {isa = PBXBuildFile; fileRef = 84A6B9B4297552A700449BB1 /* recursive_damage.h */; };
+		84A6B9CD297552A900449BB1 /* recursive_effect.c in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B9B3297552A700449BB1 /* recursive_effect.c */; };
+		84A6B9CE297552A900449BB1 /* recursive_effect.h in Headers */ = {isa = PBXBuildFile; fileRef = 84A6B9B4297552A700449BB1 /* recursive_effect.h */; };
 		84A6B9CF297552A900449BB1 /* scriptcommon.h in Headers */ = {isa = PBXBuildFile; fileRef = 84A6B9B5297552A700449BB1 /* scriptcommon.h */; };
 		84A6B9D0297552AA00449BB1 /* string.c in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B9B6297552A700449BB1 /* string.c */; };
 		84A6B9D6297552D000449BB1 /* pngdec.c in Sources */ = {isa = PBXBuildFile; fileRef = 84A6B9D2297552D000449BB1 /* pngdec.c */; };
@@ -435,8 +435,8 @@
 		84A6B9B0297552A700449BB1 /* layer.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = layer.c; path = ../source/openborscript/layer.c; sourceTree = "<group>"; };
 		84A6B9B1297552A700449BB1 /* level.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = level.c; path = ../source/openborscript/level.c; sourceTree = "<group>"; };
 		84A6B9B2297552A700449BB1 /* math.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = math.c; path = ../source/openborscript/math.c; sourceTree = "<group>"; };
-		84A6B9B3297552A700449BB1 /* recursive_damage.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = recursive_damage.c; path = ../source/openborscript/recursive_damage.c; sourceTree = "<group>"; };
-		84A6B9B4297552A700449BB1 /* recursive_damage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = recursive_damage.h; path = ../source/openborscript/recursive_damage.h; sourceTree = "<group>"; };
+		84A6B9B3297552A700449BB1 /* recursive_effect.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = recursive_effect.c; path = ../source/openborscript/recursive_effect.c; sourceTree = "<group>"; };
+		84A6B9B4297552A700449BB1 /* recursive_effect.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = recursive_effect.h; path = ../source/openborscript/recursive_effect.h; sourceTree = "<group>"; };
 		84A6B9B5297552A700449BB1 /* scriptcommon.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = scriptcommon.h; path = ../source/openborscript/scriptcommon.h; sourceTree = "<group>"; };
 		84A6B9B6297552A700449BB1 /* string.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = string.c; path = ../source/openborscript/string.c; sourceTree = "<group>"; };
 		84A6B9D2297552D000449BB1 /* pngdec.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = pngdec.c; path = ../source/pnglib/pngdec.c; sourceTree = "<group>"; };
@@ -940,8 +940,8 @@
 				84A6B9B0297552A700449BB1 /* layer.c */,
 				84A6B9B1297552A700449BB1 /* level.c */,
 				84A6B9B2297552A700449BB1 /* math.c */,
-				84A6B9B3297552A700449BB1 /* recursive_damage.c */,
-				84A6B9B4297552A700449BB1 /* recursive_damage.h */,
+				84A6B9B3297552A700449BB1 /* recursive_effect.c */,
+				84A6B9B4297552A700449BB1 /* recursive_effect.h */,
 				84A6B9B5297552A700449BB1 /* scriptcommon.h */,
 				84A6B9B6297552A700449BB1 /* string.c */,
 			);
@@ -1422,7 +1422,7 @@
 				84A6B9602975524800449BB1 /* loadimg.h in Headers */,
 				84A6BB21297565F000449BB1 /* SDL_scancode.h in Headers */,
 				84A6BB1A297565F000449BB1 /* SDL_platform.h in Headers */,
-				84A6B9CE297552A900449BB1 /* recursive_damage.h in Headers */,
+				84A6B9CE297552A900449BB1 /* recursive_effect.h in Headers */,
 				84A6BA0D2975539D00449BB1 /* FirstFollow.h in Headers */,
 				84A6BB2E297565F000449BB1 /* SDL_test_images.h in Headers */,
 				84A6BA3D297553FF00449BB1 /* yuv.h in Headers */,
@@ -1596,7 +1596,7 @@
 				84A6B95B2975524800449BB1 /* filters.c in Sources */,
 				84A6B9902975527700449BB1 /* gfx.c in Sources */,
 				84A6B9612975524800449BB1 /* models.c in Sources */,
-				84A6B9CD297552A900449BB1 /* recursive_damage.c in Sources */,
+				84A6B9CD297552A900449BB1 /* recursive_effect.c in Sources */,
 				84FCAB6229757E73009B9E20 /* GamepadButtonView.m in Sources */,
 				84A6B9BF297552A800449BB1 /* collision_coordinates.c in Sources */,
 				84A6BA552975548B00449BB1 /* openbor.c in Sources */,

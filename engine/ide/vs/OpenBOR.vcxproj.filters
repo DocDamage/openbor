@@ -1342,7 +1342,7 @@
     <ClInclude Include="..\..\xbox\generic\SndXBOX.hxx">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="recursive_damage.h">
+    <ClInclude Include="recursive_effect.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\source\openborscript\drawmethod.h">
