@@ -349,7 +349,6 @@ List *createModelCommandList(void)
     LIST_ADD(CMD_MODEL_DIVE, "dive");
     LIST_ADD(CMD_MODEL_DIVE1, "dive1");
     LIST_ADD(CMD_MODEL_DIVE2, "dive2");
-    LIST_ADD(CMD_MODEL_DOT, "dot");
     LIST_ADD(CMD_MODEL_DRAWMETHOD, "drawmethod");
     LIST_ADD(CMD_MODEL_DROPFRAME, "dropframe");
     LIST_ADD(CMD_MODEL_DROPV, "dropv");

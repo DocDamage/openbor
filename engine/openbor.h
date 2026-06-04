@@ -2022,15 +2022,15 @@ typedef struct s_recursive_effect {
     int							force;  // Damage force per tick.
     unsigned int				index;  // Index.
 	e_damage_recursive_logic	mode;   // Mode.
-    unsigned int				rate;   // Tick delay.
-    unsigned long   			tick;   // Time of next tick.
-    unsigned long				time;   // Time to expire.
+    uint32_t				    rate;   // Tick delay.
+    uint32_t   				    tick;   // Time of next tick.
+    uint32_t				    time;   // Time to expire.
 	e_attack_types				type;	// Attack type.
 	struct entity				*owner;	// Entity that caused the recursive effect.
 
     // Meta data.
     //s_meta_data*              meta_data;              // User defiend data.
-    long long			        meta_tag;	            // User defined int.
+    int64_t			            meta_tag;	            // User defined int.
 } s_recursive_effect;
 
 typedef struct
@@ -3626,9 +3626,6 @@ typedef struct entity
 	float					movex;								// Reposition this many pixels per frame. Used by animation movex command. ~~
 	float					movez;								// Reposition this many pixels per frame. Used by animation movez command. ~~
 	float					speedmul;							// Final multiplier for movement/velocity. ~~
-
-    // Big int values.
-    uint64_t                recursive_effect_active;            // Bitmap of currently active recursive effect indices.
 	
     // Size defined ints (for time).
     unsigned long	        combotime;							// If not expired, continue to next attack in series combo. ~~
@@ -3657,7 +3654,9 @@ typedef struct entity
     // -------------------------end of times ------------------------------
 	
 	// Unsigned integers
-	unsigned int			animpos;							// Current animation frame. ~~
+	uint16_t                recursive_effect_active;            // Bitmap of currently active recursive effect indices. ~~
+        
+    unsigned int			animpos;							// Current animation frame. ~~
 	unsigned int			attack_id_incoming[MAX_ATTACK_IDS];	// ~~ (	//Kratus (20-04-21) used to memorize the last 4 hitboxes and avoid the multihit bug. 2021-09-04, DC: Combine members into array. Should probably use pointer.
     unsigned int			attack_id_outgoing;	                // ~~
     unsigned int			animnum;							// Current animation id. ~~
