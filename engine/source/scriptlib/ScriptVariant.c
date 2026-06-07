@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include "globals.h"
 #include "ScriptVariant.h"
 
@@ -40,12 +42,12 @@ const s_script_variant_meta script_variant_meta_list[] = {
 
     [VT_INTEGER64] = {
         .id_string = "VT_INTEGER64",
-        .print_format = "%lld",
+        .print_format = "%" PRId64,
     },
 
     [VT_UINTEGER64] = {
         .id_string = "VT_UINTEGER64",
-        .print_format = "%llu",
+        .print_format = "%" PRIu64,
     },
 
     [VT_PTR] = {
@@ -259,7 +261,7 @@ void ScriptVariant_ParseStringConstant(ScriptVariant *var, CHAR *str)
 */
 HRESULT ScriptVariant_IntegerValue(ScriptVariant *var, LONG *pVal) {
 
-    long long temp;
+    int64_t temp;
 
     if (!var || !pVal) {
         return E_FAIL;
@@ -278,7 +280,7 @@ HRESULT ScriptVariant_IntegerValue(ScriptVariant *var, LONG *pVal) {
         case VT_INTEGER64:
             temp = var->llVal;
 
-            if (temp < (long long)LONG_MIN || temp > (long long)LONG_MAX) {
+            if (temp < (int64_t)LONG_MIN || temp > (int64_t)LONG_MAX) {
                 return E_FAIL;
             }
 
@@ -286,7 +288,7 @@ HRESULT ScriptVariant_IntegerValue(ScriptVariant *var, LONG *pVal) {
             return S_OK;
 
         case VT_UINTEGER64:
-            if (var->ullVal > (unsigned long long)LONG_MAX) {
+            if (var->ullVal > (uint64_t)LONG_MAX) {
                 return E_FAIL;
             }
 
@@ -343,14 +345,14 @@ HRESULT ScriptVariant_DecimalValue(ScriptVariant *var, DOUBLE *pVal)
 * Get a 64-bit integer value from a variant. 
 * Will attempt to convert if possible. 
 */
-HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, long long *pVal) {
+HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, int64_t *pVal) {
     if (!var || !pVal) {
         return E_FAIL;
     }
 
     switch (var->vt) {
         case VT_INTEGER:
-            *pVal = (long long)var->lVal;
+            *pVal = (int64_t)var->lVal;
             return S_OK;
 
         case VT_INTEGER64:
@@ -358,15 +360,15 @@ HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, long long *pVal) {
             return S_OK;
 
         case VT_UINTEGER64:
-            if (var->ullVal > (unsigned long long)LLONG_MAX) {
+            if (var->ullVal > (uint64_t)INT64_MAX) {
                 return E_FAIL;
             }
 
-            *pVal = (long long)var->ullVal;
+            *pVal = (int64_t)var->ullVal;
             return S_OK;
 
         case VT_DECIMAL:
-            *pVal = (long long)var->dblVal;
+            *pVal = (int64_t)var->dblVal;
             return S_OK;
 
         default:
@@ -381,7 +383,7 @@ HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, long long *pVal) {
 * Get an unsigned 64-bit integer value from a variant. 
 * Will attempt to convert if possible. 
 */
-HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, unsigned long long *pVal) {
+HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, uint64_t *pVal) {
     if (!var || !pVal) {
         return E_FAIL;
     }
@@ -392,7 +394,7 @@ HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, unsigned long long *pV
             return E_FAIL;
         }
 
-        *pVal = (unsigned long long)var->lVal;
+        *pVal = (uint64_t)var->lVal;
         return S_OK;
 
     case VT_INTEGER64:
@@ -400,7 +402,7 @@ HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, unsigned long long *pV
             return E_FAIL;
         }
 
-        *pVal = (unsigned long long)var->llVal;
+        *pVal = (uint64_t)var->llVal;
         return S_OK;
 
     case VT_UINTEGER64:
@@ -412,7 +414,7 @@ HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, unsigned long long *pV
             return E_FAIL;
         }
 
-        *pVal = (unsigned long long)var->dblVal;
+        *pVal = (uint64_t)var->dblVal;
         return S_OK;
 
     default:
@@ -473,11 +475,11 @@ void ScriptVariant_ToString(ScriptVariant *svar, LPSTR buffer) {
             break;
 
         case VT_INTEGER64:
-            sprintf( buffer, "%lld", (long long)svar->llVal);
+            sprintf( buffer, "%" PRId64, (int64_t)svar->llVal);
             break;
 
         case VT_UINTEGER64:
-            sprintf( buffer, "%llu", (unsigned long long)svar->ullVal);
+            sprintf( buffer, "%" PRIu64, (uint64_t)svar->ullVal);
             break;
 
         case VT_DECIMAL:
@@ -516,10 +518,10 @@ static int ScriptVariant_LengthAsString(ScriptVariant *svar) {
             return snprintf(NULL, 0, "%ld", (long)svar->lVal);
 
         case VT_INTEGER64:
-            return snprintf(NULL, 0, "%lld", (long long)svar->llVal);
+            return snprintf(NULL, 0, "%" PRId64, (int64_t)svar->llVal);
 
         case VT_UINTEGER64:
-            return snprintf(NULL, 0, "%llu", (unsigned long long)svar->ullVal);
+            return snprintf(NULL, 0, "%" PRIu64, (uint64_t)svar->ullVal);
 
         case VT_DECIMAL:
             return snprintf(NULL, 0, "%lf", svar->dblVal);
@@ -587,7 +589,7 @@ void ScriptVariant_Copy(ScriptVariant *svar, ScriptVariant *rightChild )
 
 /*
 * Caskey, Damon V.
-* 2021-06-04
+* 2026-06-04
 *
 * The following functions determine the 
 * appropriate type for a math operation
@@ -617,16 +619,15 @@ static int ScriptVariant_Is64BitMath(ScriptVariant *left, ScriptVariant *right)
 
 /*
 * Caskey, Damon V.
-* 2021-06-04
+* 2026-06-04
 *
-* Set the result of a math operation, safely 
-* handling overflow and type promotion to 64-bit 
-* integers when necessary.
+* Set the result of a SIGNED integer math 
+* operation. Handles overflow and type 
+* promotion to 64-bit integers when necessary.
 */
-
-static void ScriptVariant_SetSignedIntegerResult(ScriptVariant *retvar, long long value, int force64) {
+static void ScriptVariant_SetSignedIntegerResult(ScriptVariant *retvar, int64_t value, int force64) {
     
-    if (!force64 && value >= (long long)LONG_MIN && value <= (long long)LONG_MAX) {
+    if (!force64 && value >= (int64_t)LONG_MIN && value <= (int64_t)LONG_MAX) {
         ScriptVariant_ChangeType(retvar, VT_INTEGER);
         retvar->lVal = (LONG)value;
     
@@ -637,9 +638,17 @@ static void ScriptVariant_SetSignedIntegerResult(ScriptVariant *retvar, long lon
     }
 }
 
-static void ScriptVariant_SetUnsignedIntegerResult(ScriptVariant *retvar, unsigned long long value, int force64) {
+/*
+* Caskey, Damon V.
+* 2026-06-04
+*
+* Set the result of an UNSIGNED integer math 
+* operation. Handles overflow and type 
+* promotion to 64-bit integers when necessary.
+*/
+static void ScriptVariant_SetUnsignedIntegerResult(ScriptVariant *retvar, uint64_t value, int force64) {
     
-    if (!force64 && value <= (unsigned long long)LONG_MAX) {
+    if (!force64 && value <= (uint64_t)LONG_MAX) {
 
         ScriptVariant_ChangeType(retvar, VT_INTEGER);
         retvar->lVal = (LONG)value;
@@ -650,50 +659,6 @@ static void ScriptVariant_SetUnsignedIntegerResult(ScriptVariant *retvar, unsign
         retvar->ullVal = value;
     }
 }
-
-static int ScriptVariant_AddSigned64(long long left, long long right, long long *result) {
-
-    if ((right > 0 && left > LLONG_MAX - right) ||
-        (right < 0 && left < LLONG_MIN - right)) {
-        return 0;
-    }
-
-    *result = left + right;
-    return 1;
-}
-
-static int ScriptVariant_SubSigned64(long long left, long long right, long long *result) {
-    
-    if ((right < 0 && left > LLONG_MAX + right) ||
-        (right > 0 && left < LLONG_MIN + right)) {
-        return 0;
-    }
-
-    *result = left - right;
-    return 1;
-}
-
-static int ScriptVariant_MulSigned64(long long left, long long right, long long *result) {
-    
-    if (left > 0) {
-        
-        if ((right > 0 && left > LLONG_MAX / right) ||
-            (right < 0 && right < LLONG_MIN / left)) {
-            return 0;
-        }
-    
-    } else if (left < 0) {
-
-        if ((right > 0 && left < LLONG_MIN / right) ||
-            (right < 0 && left < LLONG_MAX / right)) {
-            return 0;
-        }
-    }
-
-    *result = left * right;
-    return 1;
-}
-
 
 // light version, for compiled call, faster than above, but not safe in some situations
 ScriptVariant *ScriptVariant_Assign(ScriptVariant *svar, ScriptVariant *rightChild )
@@ -739,6 +704,11 @@ ScriptVariant *ScriptVariant_ModAssign(ScriptVariant *svar, ScriptVariant *right
 
 //Logical Operations
 
+/*
+* Logical OR.
+* 
+* i || x
+*/
 ScriptVariant *ScriptVariant_Or( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     static ScriptVariant retvar = {{.lVal = 0}, VT_INTEGER};
@@ -747,6 +717,11 @@ ScriptVariant *ScriptVariant_Or( ScriptVariant *svar, ScriptVariant *rightChild 
 }
 
 
+/*
+* Logical AND.
+* 
+* i && x
+*/
 ScriptVariant *ScriptVariant_And( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     static ScriptVariant retvar = {{.lVal = 0}, VT_INTEGER};
@@ -754,6 +729,11 @@ ScriptVariant *ScriptVariant_And( ScriptVariant *svar, ScriptVariant *rightChild
     return &retvar;
 }
 
+/*
+* Bitwise OR.
+* 
+* i | x
+*/
 ScriptVariant *ScriptVariant_Bit_Or( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -772,6 +752,11 @@ ScriptVariant *ScriptVariant_Bit_Or( ScriptVariant *svar, ScriptVariant *rightCh
     return &retvar;
 }
 
+/*
+* Bitwise XOR.
+* 
+* i ^ x
+*/
 ScriptVariant *ScriptVariant_Xor( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -790,6 +775,11 @@ ScriptVariant *ScriptVariant_Xor( ScriptVariant *svar, ScriptVariant *rightChild
     return &retvar;
 }
 
+/*
+* Bitwise AND.
+* 
+* i & x
+*/
 ScriptVariant *ScriptVariant_Bit_And( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -808,6 +798,11 @@ ScriptVariant *ScriptVariant_Bit_And( ScriptVariant *svar, ScriptVariant *rightC
     return &retvar;
 }
 
+/*
+* Equal.
+* 
+* i == x
+*/
 ScriptVariant *ScriptVariant_Eq( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     DOUBLE dbl1, dbl2;
@@ -838,7 +833,11 @@ ScriptVariant *ScriptVariant_Eq( ScriptVariant *svar, ScriptVariant *rightChild 
     return &retvar;
 }
 
-
+/*
+* Not equal.
+* 
+* i != x
+*/
 ScriptVariant *ScriptVariant_Ne( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     DOUBLE dbl1, dbl2;
@@ -869,7 +868,11 @@ ScriptVariant *ScriptVariant_Ne( ScriptVariant *svar, ScriptVariant *rightChild 
     return &retvar;
 }
 
-
+/*
+* Less than.
+* 
+* i < x
+*/
 ScriptVariant *ScriptVariant_Lt( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     DOUBLE dbl1, dbl2;
@@ -901,7 +904,11 @@ ScriptVariant *ScriptVariant_Lt( ScriptVariant *svar, ScriptVariant *rightChild 
 }
 
 
-
+/*
+* Greater than.
+* 
+* i > x
+*/
 ScriptVariant *ScriptVariant_Gt( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     DOUBLE dbl1, dbl2;
@@ -933,7 +940,11 @@ ScriptVariant *ScriptVariant_Gt( ScriptVariant *svar, ScriptVariant *rightChild 
 }
 
 
-
+/*
+* Greater than or equal to.
+* 
+* i >= x
+*/
 ScriptVariant *ScriptVariant_Ge( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     DOUBLE dbl1, dbl2;
@@ -965,6 +976,11 @@ ScriptVariant *ScriptVariant_Ge( ScriptVariant *svar, ScriptVariant *rightChild 
 }
 
 
+/*
+* Less than or equal to.
+* 
+* i <= x
+*/
 ScriptVariant *ScriptVariant_Le( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     DOUBLE dbl1, dbl2;
@@ -996,6 +1012,9 @@ ScriptVariant *ScriptVariant_Le( ScriptVariant *svar, ScriptVariant *rightChild 
 }
 
 
+/*
+* Left bitwise shift.
+*/
 ScriptVariant *ScriptVariant_Shl( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -1015,6 +1034,9 @@ ScriptVariant *ScriptVariant_Shl( ScriptVariant *svar, ScriptVariant *rightChild
 }
 
 
+/*
+* Right bitwise shift.
+*/
 ScriptVariant *ScriptVariant_Shr( ScriptVariant *svar, ScriptVariant *rightChild )
 {
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -1033,6 +1055,45 @@ ScriptVariant *ScriptVariant_Shr( ScriptVariant *svar, ScriptVariant *rightChild
     return &retvar;
 }
 
+/*
+* Caskey, Damon V.
+* 2026-06-02
+*
+* Safely add two signed 64-bit integers, 
+* checking for overflow.
+*
+* Returns 1 on success, 0 on overflow.
+*/
+static int ScriptVariant_AddSigned64(int64_t left, int64_t right, int64_t *result) {
+
+    if ((right > 0 && left > INT64_MAX - right) ||
+        (right < 0 && left < INT64_MIN - right)) {
+        return 0;
+    }
+
+    *result = left + right;
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-04
+*
+* Safely add two unsigned 64-bit integers,
+* checking for overflow.
+*
+* Returns 1 on success, 0 on overflow.
+*/
+static int ScriptVariant_AddUnsigned64(uint64_t left, uint64_t right, uint64_t *result) {
+
+    if (left > UINT64_MAX - right) {
+        return 0;
+    }
+
+    *result = left + right;
+
+    return 1;
+}
 
 /*
 * Caskey, Damon V.
@@ -1040,11 +1101,14 @@ ScriptVariant *ScriptVariant_Shr( ScriptVariant *svar, ScriptVariant *rightChild
 *
 * Adds two script variants.
 *
+* i + x
+*
 * String operands concatenate as before. Decimal operands
 * use floating-point arithmetic. Integer operands stay in
 * integer space so 64-bit carriers do not lose precision
 * through DOUBLE conversion.
 */
+
 ScriptVariant *ScriptVariant_Add(ScriptVariant *svar, ScriptVariant *rightChild) {
     
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -1056,6 +1120,7 @@ ScriptVariant *ScriptVariant_Add(ScriptVariant *svar, ScriptVariant *rightChild)
     * to strings and concatenate them into a new cache entry.
     */
     if (svar->vt == VT_STR || rightChild->vt == VT_STR) {
+
         CHAR *destination_string;
         int length_a = ScriptVariant_LengthAsString(svar);
         int length_b = ScriptVariant_LengthAsString(rightChild);
@@ -1096,6 +1161,7 @@ ScriptVariant *ScriptVariant_Add(ScriptVariant *svar, ScriptVariant *rightChild)
 
         if (ScriptVariant_DecimalValue(svar, &left) == S_OK &&
             ScriptVariant_DecimalValue(rightChild, &right) == S_OK) {
+
             ScriptVariant_ChangeType(&retvar, VT_DECIMAL);
             retvar.dblVal = left + right;
         
@@ -1114,13 +1180,14 @@ ScriptVariant *ScriptVariant_Add(ScriptVariant *svar, ScriptVariant *rightChild)
     */
     if (ScriptVariant_IsUnsignedMath(svar, rightChild)) {
 
-        unsigned long long left;
-        unsigned long long right;
-        unsigned long long result;
+        uint64_t left;
+        uint64_t right;
+        uint64_t result;
 
         if (ScriptVariant_Unsigned64Value(svar, &left) == S_OK &&
             ScriptVariant_Unsigned64Value(rightChild, &right) == S_OK &&
             ScriptVariant_AddUnsigned64(left, right, &result)) {
+
             ScriptVariant_SetUnsignedIntegerResult(&retvar, result, 1);
         
         } else {
@@ -1132,19 +1199,18 @@ ScriptVariant *ScriptVariant_Add(ScriptVariant *svar, ScriptVariant *rightChild)
 
     /*
     * Signed integer arithmetic covers legacy integers
-    * and signed 64-bit carriers. Ugh, not a fan of 
-    * orphan brackets, but shuts up modern compilers 
-    * and code evaluation tools.
+    * and signed 64-bit carriers.
     */
     {
-        long long left;
-        long long right;
-        long long result;
+        int64_t left;
+        int64_t right;
+        int64_t result;
         int force64 = ScriptVariant_Is64BitMath(svar, rightChild);
 
         if (ScriptVariant_Integer64Value(svar, &left) == S_OK &&
             ScriptVariant_Integer64Value(rightChild, &right) == S_OK &&
             ScriptVariant_AddSigned64(left, right, &result)) {
+
             ScriptVariant_SetSignedIntegerResult(&retvar, result, force64);
         
         } else {
@@ -1155,113 +1221,529 @@ ScriptVariant *ScriptVariant_Add(ScriptVariant *svar, ScriptVariant *rightChild)
     return &retvar;
 }
 
+/*
+* Caskey, Damon V.
+* 2026-06-04
+*
+* Safely subtract two signed 64-bit integers,
+* checking for overflow.
+*
+* Returns 1 on success, 0 on overflow.
+*/
+static int ScriptVariant_SubSigned64(int64_t left, int64_t right, int64_t *result) {
 
-ScriptVariant *ScriptVariant_Sub( ScriptVariant *svar, ScriptVariant *rightChild )
-{
-    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
-    DOUBLE dbl1, dbl2;
-    if(ScriptVariant_DecimalValue(svar, &dbl1) == S_OK &&
-            ScriptVariant_DecimalValue(rightChild, &dbl2) == S_OK)
-    {
-        if(svar->vt == VT_DECIMAL || rightChild->vt == VT_DECIMAL)
-        {
-            retvar.vt = VT_DECIMAL;
-            retvar.dblVal = dbl1 - dbl2;
-        }
-        else
-        {
-            retvar.vt = VT_INTEGER;
-            retvar.lVal = (LONG)(dbl1 - dbl2);
-        }
+    if ((right < 0 && left > INT64_MAX + right) ||
+        (right > 0 && left < INT64_MIN + right)) {
+        return 0;
     }
-    else
+
+    *result = left - right;
+
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-04
+*
+* Safely subtract two unsigned 64-bit integers,
+* checking for underflow.
+*
+* Returns 1 on success, 0 on underflow.
+*/
+static int ScriptVariant_SubUnsigned64(uint64_t left, uint64_t right, uint64_t *result) {
+
+    if (left < right) {
+        return 0;
+    }
+
+    *result = left - right;
+
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Subtracts two script variants.
+*
+* i - x
+*
+* Decimal operands use floating-point arithmetic.
+* Integer operands stay in integer space so 64-bit
+* carriers do not lose precision through DOUBLE
+* conversion.
+*/
+ScriptVariant *ScriptVariant_Sub(ScriptVariant *svar, ScriptVariant *rightChild) {
+
+    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
+
+    /*
+    * If either operand is a decimal, use decimal arithmetic.
+    */
+    if (ScriptVariant_IsDecimalMath(svar, rightChild)) {
+        DOUBLE left;
+        DOUBLE right;
+
+        if (ScriptVariant_DecimalValue(svar, &left) == S_OK &&
+            ScriptVariant_DecimalValue(rightChild, &right) == S_OK) {
+
+            ScriptVariant_ChangeType(&retvar, VT_DECIMAL);
+            retvar.dblVal = left - right;
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
+
+        return &retvar;
+    }
+
+    /*
+    * Unsigned 64-bit arithmetic is used when either
+    * operand is an unsigned 64-bit carrier. Subtraction
+    * fails if the result would underflow below zero.
+    */
+    if (ScriptVariant_IsUnsignedMath(svar, rightChild)) {
+
+        uint64_t left;
+        uint64_t right;
+        uint64_t result;
+
+        if (ScriptVariant_Unsigned64Value(svar, &left) == S_OK &&
+            ScriptVariant_Unsigned64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_SubUnsigned64(left, right, &result)) {
+
+            ScriptVariant_SetUnsignedIntegerResult(&retvar, result, 1);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
+
+        return &retvar;
+    }
+
+    /*
+    * Signed integer arithmetic covers legacy integers
+    * and signed 64-bit carriers. 
+    */
     {
-        ScriptVariant_Clear(&retvar);
+        int64_t left;
+        int64_t right;
+        int64_t result;
+        int force64 = ScriptVariant_Is64BitMath(svar, rightChild);
+
+        if (ScriptVariant_Integer64Value(svar, &left) == S_OK &&
+            ScriptVariant_Integer64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_SubSigned64(left, right, &result)) {
+
+            ScriptVariant_SetSignedIntegerResult(&retvar, result, force64);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
     }
 
     return &retvar;
 }
 
-
-ScriptVariant *ScriptVariant_Mul( ScriptVariant *svar, ScriptVariant *rightChild )
-{
-    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
-    DOUBLE dbl1, dbl2;
-    if(ScriptVariant_DecimalValue(svar, &dbl1) == S_OK &&
-            ScriptVariant_DecimalValue(rightChild, &dbl2) == S_OK)
-    {
-        if(svar->vt == VT_DECIMAL || rightChild->vt == VT_DECIMAL)
-        {
-            retvar.vt = VT_DECIMAL;
-            retvar.dblVal = dbl1 * dbl2;
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Safely multiply two signed 64-bit integers,
+* checking for overflow.
+*
+* Returns 1 on success, 0 on overflow.
+*/
+static int ScriptVariant_MulSigned64(int64_t left, int64_t right, int64_t *result) {
+    
+    if (left > 0) {
+        
+        if ((right > 0 && left > INT64_MAX / right) ||
+            (right < 0 && right < INT64_MIN / left)) {
+            return 0;
         }
-        else
-        {
-            retvar.vt = VT_INTEGER;
-            retvar.lVal = (LONG)(dbl1 * dbl2);
+    
+    } else if (left < 0) {
+
+        if ((right > 0 && left < INT64_MIN / right) ||
+            (right < 0 && left < INT64_MAX / right)) {
+            return 0;
         }
     }
-    else
+
+    *result = left * right;
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Safely multiply two unsigned 64-bit integers,
+* checking for overflow.
+*
+* Returns 1 on success, 0 on overflow.
+*/
+static int ScriptVariant_MulUnsigned64(uint64_t left, uint64_t right, uint64_t *result) {
+
+    if (right && left > UINT64_MAX / right) {
+        return 0;
+    }
+
+    *result = left * right;
+
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Multiplies two script variants.
+*
+* Decimal operands use floating-point arithmetic.
+* Integer operands stay in integer space so 64-bit
+* carriers do not lose precision through DOUBLE
+* conversion.
+*/
+ScriptVariant *ScriptVariant_Mul(ScriptVariant *svar, ScriptVariant *rightChild) {
+
+    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
+
+    /*
+    * If either operand is a decimal, use decimal arithmetic.
+    */
+    if (ScriptVariant_IsDecimalMath(svar, rightChild)) {
+        DOUBLE left;
+        DOUBLE right;
+
+        if (ScriptVariant_DecimalValue(svar, &left) == S_OK &&
+            ScriptVariant_DecimalValue(rightChild, &right) == S_OK) {
+
+            ScriptVariant_ChangeType(&retvar, VT_DECIMAL);
+            retvar.dblVal = left * right;
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
+
+        return &retvar;
+    }
+
+    /*
+    * Unsigned 64-bit arithmetic is used when either
+    * operand is an unsigned 64-bit carrier. Multiplication
+    * fails if the result would overflow uint64_t.
+    */
+    if (ScriptVariant_IsUnsignedMath(svar, rightChild)) {
+
+        uint64_t left;
+        uint64_t right;
+        uint64_t result;
+
+        if (ScriptVariant_Unsigned64Value(svar, &left) == S_OK &&
+            ScriptVariant_Unsigned64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_MulUnsigned64(left, right, &result)) {
+
+            ScriptVariant_SetUnsignedIntegerResult(&retvar, result, 1);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
+
+        return &retvar;
+    }
+
+    /*
+    * Signed integer arithmetic covers legacy integers
+    * and signed 64-bit carriers.
+    */
     {
-        ScriptVariant_Clear(&retvar);
+        int64_t left;
+        int64_t right;
+        int64_t result;
+        int force64 = ScriptVariant_Is64BitMath(svar, rightChild);
+
+        if (ScriptVariant_Integer64Value(svar, &left) == S_OK &&
+            ScriptVariant_Integer64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_MulSigned64(left, right, &result)) {
+
+            ScriptVariant_SetSignedIntegerResult(&retvar, result, force64);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
     }
 
     return &retvar;
 }
 
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Safely divide two signed 64-bit integers.
+* Fail on divide by zero and the one signed
+* division overflow case.
+*
+* Returns 1 on success, 0 on failure.
+*/
+static int ScriptVariant_DivSigned64(int64_t left, int64_t right, int64_t *result) {
 
-ScriptVariant *ScriptVariant_Div( ScriptVariant *svar, ScriptVariant *rightChild )
-{
-    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
-    DOUBLE dbl1, dbl2;
-    if(ScriptVariant_DecimalValue(svar, &dbl1) == S_OK &&
-            ScriptVariant_DecimalValue(rightChild, &dbl2) == S_OK)
-    {
-        if(dbl2 == 0)
-        {
-            ScriptVariant_Init(&retvar);
-        }
-        else if(svar->vt == VT_DECIMAL || rightChild->vt == VT_DECIMAL)
-        {
-            retvar.vt = VT_DECIMAL;
-            retvar.dblVal = dbl1 / dbl2;
-        }
-        else
-        {
-            retvar.vt = VT_INTEGER;
-            retvar.lVal = (LONG)(dbl1 / dbl2);
-        }
+    /* 
+    * Divide by 0 attempt.
+    */
+
+    if (right == 0) {        
+        return 0;
     }
-    else
+
+    /*
+    * Overflow case: INT64_MIN / -1. This 
+    * would produce a result of 2^63, which
+    * cannot be represented in an int64_t.
+    */
+
+    if (left == INT64_MIN && right == -1) {
+        return 0;
+    }
+
+    *result = left / right;
+
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Safely divide two unsigned 64-bit integers.
+* Checks for divide by zero.
+*
+* Returns 1 on success, 0 on failure.
+*/
+static int ScriptVariant_DivUnsigned64(uint64_t left, uint64_t right, uint64_t *result) {
+
+    if (right == 0) {
+        return 0;
+    }
+
+    *result = left / right;
+
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Divides two script variants.
+*
+* i / x
+*
+* Decimal operands use floating-point arithmetic.
+* Integer operands stay in integer space so 64-bit
+* carriers do not lose precision through DOUBLE
+* conversion.
+*/
+ScriptVariant *ScriptVariant_Div(ScriptVariant *svar, ScriptVariant *rightChild) {
+
+    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
+
+    /*
+    * If either operand is a decimal, use decimal arithmetic.
+    */
+    if (ScriptVariant_IsDecimalMath(svar, rightChild)) {
+        DOUBLE left;
+        DOUBLE right;
+
+        if (ScriptVariant_DecimalValue(svar, &left) == S_OK &&
+            ScriptVariant_DecimalValue(rightChild, &right) == S_OK &&
+            right != 0.0) {
+
+            ScriptVariant_ChangeType(&retvar, VT_DECIMAL);
+            retvar.dblVal = left / right;
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
+
+        return &retvar;
+    }
+
+    /*
+    * Unsigned 64-bit arithmetic is used when either
+    * operand is an unsigned 64-bit carrier. Division
+    * fails if the divisor is zero.
+    */
+    if (ScriptVariant_IsUnsignedMath(svar, rightChild)) {
+
+        uint64_t left;
+        uint64_t right;
+        uint64_t result;
+
+        if (ScriptVariant_Unsigned64Value(svar, &left) == S_OK &&
+            ScriptVariant_Unsigned64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_DivUnsigned64(left, right, &result)) {
+
+            ScriptVariant_SetUnsignedIntegerResult(&retvar, result, 1);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
+
+        return &retvar;
+    }
+
+    /*
+    * Signed integer arithmetic covers legacy integers
+    * and signed 64-bit carriers.
+    */
     {
-        ScriptVariant_Clear(&retvar);
+        int64_t left;
+        int64_t right;
+        int64_t result;
+        int force64 = ScriptVariant_Is64BitMath(svar, rightChild);
+
+        if (ScriptVariant_Integer64Value(svar, &left) == S_OK &&
+            ScriptVariant_Integer64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_DivSigned64(left, right, &result)) {
+
+            ScriptVariant_SetSignedIntegerResult(&retvar, result, force64);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
     }
 
     return &retvar;
 }
 
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Safely perform signed 64-bit modulo.
+* Fails on modulo by zero and the one signed
+* division overflow case.
+*
+* Returns 1 on success, 0 on failure.
+*/
+static int ScriptVariant_ModSigned64(int64_t left, int64_t right, int64_t *result) {
 
-ScriptVariant *ScriptVariant_Mod( ScriptVariant *svar, ScriptVariant *rightChild )
-{
-    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
-    LONG l1, l2;
-    if(ScriptVariant_IntegerValue(svar, &l1) == S_OK &&
-            ScriptVariant_IntegerValue(rightChild, &l2) == S_OK)
-    {
-        retvar.vt = VT_INTEGER;
-        retvar.lVal = l1 % l2;
+    /*
+    * Modulo by 0 attempt.
+    */
+
+    if (right == 0) {
+        return 0;
     }
-    else
+
+    /*
+    * Overflow case: INT64_MIN % -1. Even though
+    * the mathematical remainder is 0, C evaluates
+    * this through signed division rules.
+    */
+
+    if (left == INT64_MIN && right == -1) {
+        return 0;
+    }
+
+    *result = left % right;
+
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Safely perform unsigned 64-bit modulo.
+* Fails on modulo by zero.
+*
+* Returns 1 on success, 0 on failure.
+*/
+static int ScriptVariant_ModUnsigned64(uint64_t left, uint64_t right, uint64_t *result) {
+
+    if (right == 0) {
+        return 0;
+    }
+
+    *result = left % right;
+
+    return 1;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-05
+*
+* Performs modulo on two script variants.
+*
+* i % x
+*
+* Integer operands stay in integer space so 64-bit
+* carriers do not lose precision through DOUBLE
+* conversion. Decimal operands follow legacy integer
+* conversion semantics.
+*/
+ScriptVariant *ScriptVariant_Mod(ScriptVariant *svar, ScriptVariant *rightChild) {
+
+    static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
+
+    /*
+    * Unsigned 64-bit modulo is used when either
+    * operand is an unsigned 64-bit carrier. Modulo
+    * fails if the divisor is zero.
+    */
+    if (ScriptVariant_IsUnsignedMath(svar, rightChild)) {
+
+        uint64_t left;
+        uint64_t right;
+        uint64_t result;
+
+        if (ScriptVariant_Unsigned64Value(svar, &left) == S_OK &&
+            ScriptVariant_Unsigned64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_ModUnsigned64(left, right, &result)) {
+
+            ScriptVariant_SetUnsignedIntegerResult(&retvar, result, 1);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
+
+        return &retvar;
+    }
+
+    /*
+    * Signed integer modulo covers legacy integers
+    * and signed 64-bit carriers.
+    */
     {
-        ScriptVariant_Clear(&retvar);
+        int64_t left;
+        int64_t right;
+        int64_t result;
+        int force64 = ScriptVariant_Is64BitMath(svar, rightChild);
+
+        if (ScriptVariant_Integer64Value(svar, &left) == S_OK &&
+            ScriptVariant_Integer64Value(rightChild, &right) == S_OK &&
+            ScriptVariant_ModSigned64(left, right, &result)) {
+
+            ScriptVariant_SetSignedIntegerResult(&retvar, result, force64);
+
+        } else {
+            ScriptVariant_Clear(&retvar);
+        }
     }
 
     return &retvar;
 }
 
-//Unary Operations
-//++i
+// Unary Operations
 
+// ++i
 void ScriptVariant_Inc_Op(ScriptVariant *svar )
 {
     switch(svar->vt) {
@@ -1287,7 +1769,6 @@ void ScriptVariant_Inc_Op(ScriptVariant *svar )
 }
 
 // i++
-
 ScriptVariant *ScriptVariant_Inc_Op2(ScriptVariant *svar )
 {
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -1315,8 +1796,7 @@ ScriptVariant *ScriptVariant_Inc_Op2(ScriptVariant *svar )
     return &retvar;
 }
 
-//--i
-
+// --i
 void ScriptVariant_Dec_Op(ScriptVariant *svar )
 {
     switch(svar->vt) {
@@ -1343,7 +1823,6 @@ void ScriptVariant_Dec_Op(ScriptVariant *svar )
 }
 
 // i--
-
 ScriptVariant *ScriptVariant_Dec_Op2(ScriptVariant *svar )
 {
     static ScriptVariant retvar = {{.ptrVal = NULL}, VT_EMPTY};
@@ -1372,9 +1851,7 @@ ScriptVariant *ScriptVariant_Dec_Op2(ScriptVariant *svar )
 }
 
 //+i
-
-void ScriptVariant_Pos( ScriptVariant *svar)
-{
+void ScriptVariant_Pos( ScriptVariant *svar) {
     /*
     static ScriptVariant retvar = {{.ptrVal=NULL}, VT_EMPTY};
     switch(svar->vt)
@@ -1388,41 +1865,42 @@ void ScriptVariant_Pos( ScriptVariant *svar)
 }
 
 //-i
-
 void ScriptVariant_Neg( ScriptVariant *svar) {
-    switch(svar->vt)
-    {
-    case VT_DECIMAL:
-        svar->dblVal = -(svar->dblVal);
-        break;
+    
+    switch(svar->vt) {
+        case VT_DECIMAL:
+            svar->dblVal = -(svar->dblVal);
+            break;
 
-    case VT_INTEGER:
-        svar->lVal = -(svar->lVal);
-        break;
+        case VT_INTEGER:
+            svar->lVal = -(svar->lVal);
+            break;
 
-    case VT_INTEGER64:
-        svar->llVal = -(svar->llVal);
-        break;
+        case VT_INTEGER64:
+            svar->llVal = -(svar->llVal);
+            break;
 
-    case VT_UINTEGER64:
-        /*
-        * Unsigned values cannot be meaningfully negated.
-        * Convert to signed only if it fits.
-        */
-        if (svar->ullVal <= (unsigned long long)LLONG_MAX) {
-            unsigned long long temp = svar->ullVal;
+        case VT_UINTEGER64:
+            
+            /*
+            * Unsigned values cannot be meaningfully negated.
+            * Convert to signed only if it fits.
+            */
 
-            ScriptVariant_ChangeType(svar, VT_INTEGER64);
-            svar->llVal = -(long long)temp;
-        }
-        break;
+            if (svar->ullVal <= (uint64_t)INT64_MAX) {
+                uint64_t temp = svar->ullVal;
 
-    default:
-        break;
+                ScriptVariant_ChangeType(svar, VT_INTEGER64);
+                svar->llVal = -(int64_t)temp;
+            }
+            break;
+
+        default:
+            break;
     }
 }
 
-
+// !i
 void ScriptVariant_Boolean_Not(ScriptVariant *svar )
 {
     /*
@@ -1436,6 +1914,7 @@ void ScriptVariant_Boolean_Not(ScriptVariant *svar )
 
 }
 
+// ~i
 void ScriptVariant_Bitwise_Not(ScriptVariant *svar ) {
 
     switch (svar->vt) {

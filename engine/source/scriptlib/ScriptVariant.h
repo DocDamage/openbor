@@ -10,6 +10,7 @@
 #define SCRIPTVARIANT_H
 
 #include "depends.h"
+#include <stdint.h>
 
 typedef enum VariantType {
     
@@ -28,8 +29,8 @@ typedef struct ScriptVariant {
     
     union{
         LONG                lVal;
-        long long           llVal;
-        unsigned long long  ullVal;
+        int64_t             llVal;
+        uint64_t            ullVal;
         VOID               *ptrVal;
         DOUBLE              dblVal;
         int                 strVal;
@@ -71,8 +72,8 @@ void ScriptVariant_ChangeType(ScriptVariant *var, VARTYPE cvt);
 void ScriptVariant_ParseStringConstant(ScriptVariant *var, CHAR *str);
 HRESULT ScriptVariant_IntegerValue(ScriptVariant *var, LONG *pVal);
 HRESULT ScriptVariant_DecimalValue(ScriptVariant *var, DOUBLE *pVal);
-HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, long long *pVal);
-HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, unsigned long long *pVal);
+HRESULT ScriptVariant_Integer64Value(ScriptVariant *var, int64_t *pVal);
+HRESULT ScriptVariant_Unsigned64Value(ScriptVariant *var, uint64_t *pVal);
 BOOL ScriptVariant_IsTrue(ScriptVariant *svar);
 void ScriptVariant_ToString(ScriptVariant *svar, LPSTR buffer );
 
