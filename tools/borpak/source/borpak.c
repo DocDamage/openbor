@@ -228,7 +228,13 @@ int main(int argc, char *argv[]) {
 
 			if(!patt || (patt && stristr(pn.name, patt))) {
 				printf("  %s\n", pn.name);
-				if(!list) get_file(fd, pn.name, pn.off, pn.size);
+				if(!list) {
+					if(strstr(pn.name, "../") || strstr(pn.name, "..\\") || pn.name[0] == '/' || pn.name[0] == '\\') {
+						printf("  skipping %s: path traversal detected\n", pn.name);
+					} else {
+						get_file(fd, pn.name, pn.off, pn.size);
+					}
+				}
 				filez++;
 			}
 
@@ -386,8 +392,9 @@ int recursive_dir(FILE *fd, char *filedir) {
 		for(i = 0; i < n; i++) {    // Changed by Plombo
 			if(!strcmp(namelist[i]->d_name, ".") || !strcmp(namelist[i]->d_name, "..")) continue;
 
-			sprintf(
-				tcDir ,
+			snprintf(
+				tcDir,
+				sizeof(tcDir),
 				"%s/%s",
 				filedir,
 				namelist[i]->d_name);
