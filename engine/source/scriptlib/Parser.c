@@ -1834,17 +1834,21 @@ void Parser_Unary_expr(Parser *pparser )
     {
         Parser_Match(pparser);
         Parser_Unary_expr(pparser );
-        pInstruction = (Instruction *)List_Retrieve(pparser->pIList);
-        if(pInstruction->OpCode == CONSTINT)
-        {
-            int constvar = ~(atoi(pInstruction->theToken->theSource));
-            sprintf(buf, "%d", constvar);
-            strcpy(pInstruction->theToken->theSource, buf);
-        }
-        else
-        {
-            Parser_AddInstructionViaToken(pparser, BIT_NOT, (Token *)NULL, NULL );
-        }
+
+        /*
+        * Caskey, Damon V.
+        * 2026-06-08
+        *
+        * Do not constant-fold bitwise NOT here.
+        * The legacy atoi()/int fold truncates
+        * 64-bit integer constants before they can
+        * reach the ScriptVariant operator path.
+        *
+        * Emit BIT_NOT so runtime handling preserves
+        * VT_INTEGER, VT_INTEGER64, and VT_UINTEGER64
+        * carrier semantics.
+        */
+        Parser_AddInstructionViaToken(pparser, BIT_NOT, (Token *)NULL, NULL );
     }
     else
     {
