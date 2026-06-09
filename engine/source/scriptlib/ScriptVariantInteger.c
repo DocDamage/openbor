@@ -1,4 +1,5 @@
 #include "ScriptVariantInteger.h"
+#include <limits.h>
 
 /*
 * Caskey, Damon V.

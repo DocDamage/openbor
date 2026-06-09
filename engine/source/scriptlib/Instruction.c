@@ -288,18 +288,16 @@ static HRESULT Instruction_ParseIntegerConstant(ScriptVariant *pvar, const char 
     }
 
     /*
-    * Unsuffixed huge hex constants are commonly 
-    * bitmasks. Let them land in unsigned 64. For 
-    * decimal, require U/UL/ULL to avoid accidental 
-    * unsigned.
+    * Positive literals above INT64_MAX still fit
+    * the unsigned 64-bit carrier. Let them land
+    * in VT_UINTEGER64 so script literals behave
+    * like values produced by integer math, such
+    * as pow(2, 63).
     */
-    if (hex_constant) {
-        ScriptVariant_ChangeType(pvar, VT_UINTEGER64);
-        pvar->ullVal = magnitude;
-        return S_OK;
-    }
 
-    return E_FAIL;
+    ScriptVariant_ChangeType(pvar, VT_UINTEGER64);
+    pvar->ullVal = magnitude;
+    return S_OK;
 }
 
 /*
@@ -472,10 +470,9 @@ void Instruction_ConvertConstant(Instruction *pins) {
                     pvar,
                     sc,
                     pins->theToken->theType == TOKEN_HEXCONSTANT) != S_OK) {
-                /*
-                * Keep old behavior non-fatal unless the compiler 
-                * has a better error reporting path available here.
-                */
+
+                printf("Invalid integer constant '%s'.\n", sc);
+
                 ScriptVariant_ChangeType(pvar, VT_INTEGER);
                 pvar->lVal = 0;
             }
