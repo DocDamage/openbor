@@ -135,6 +135,9 @@ HRESULT math_asin(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCo
 HRESULT math_acos(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
 HRESULT math_atan(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
 HRESULT math_atan2(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
+HRESULT math_angle(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
+HRESULT math_ceil(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
+HRESULT math_floor(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
 HRESULT math_trunc(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
 HRESULT math_round(ScriptVariant **varlist , ScriptVariant **pretvar, int paramCount);
 

@@ -1225,6 +1225,12 @@ void Script_LoadSystemFunctions()
     List_InsertAfter(&theFunctionList,
                      (void *)math_atan2, "atan2");
     List_InsertAfter(&theFunctionList,
+                     (void *)math_angle, "angle");
+    List_InsertAfter(&theFunctionList,
+                     (void *)math_ceil, "ceil");
+    List_InsertAfter(&theFunctionList,
+                     (void *)math_floor, "floor");
+    List_InsertAfter(&theFunctionList,
                      (void *)math_trunc, "trunc");
     List_InsertAfter(&theFunctionList,
                      (void *)math_round, "round");

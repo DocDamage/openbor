@@ -499,6 +499,101 @@ HRESULT math_atan2(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCo
 * Caskey, Damon V.
 * 2026-06-08
 *
+* Get direction angle of Y/X as a decimal degree
+* normalized to [0, 360).
+*/
+HRESULT math_angle(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCount)
+{
+    DOUBLE y;
+    DOUBLE x;
+    DOUBLE degrees;
+
+    if (ScriptVariant_DecimalValue(varlist[0], &y) == S_OK &&
+        ScriptVariant_DecimalValue(varlist[1], &x) == S_OK)
+    {
+        degrees = (DOUBLE)(atan2((double)y, (double)x) * 180.0 / MATH_PI);
+
+        if (degrees < 0.0) {
+            degrees += 360.0;
+        }
+
+        ScriptVariant_ChangeType(*pretvar, VT_DECIMAL);
+        (*pretvar)->dblVal = degrees;
+        return S_OK;
+    }
+
+    *pretvar = NULL;
+    return E_FAIL;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-08
+*
+* Get floor value of a variant as an integer.
+* Preserves integer carriers and promotes decimal
+* results to 64-bit integer carriers when needed.
+*/
+HRESULT math_floor(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCount)
+{
+    DOUBLE dbltemp;
+
+    switch (varlist[0]->vt) {
+        case VT_INTEGER:
+        case VT_INTEGER64:
+        case VT_UINTEGER64:
+            ScriptVariant_Copy(*pretvar, varlist[0]);
+            return S_OK;
+
+        default:
+            break;
+    }
+
+    if (ScriptVariant_DecimalValue(varlist[0], &dbltemp) == S_OK &&
+        math_set_truncated_integer(*pretvar, (DOUBLE)floor((double)dbltemp)) == S_OK) {
+        return S_OK;
+    }
+
+    *pretvar = NULL;
+    return E_FAIL;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-08
+*
+* Get ceiling value of a variant as an integer.
+* Preserves integer carriers and promotes decimal
+* results to 64-bit integer carriers when needed.
+*/
+HRESULT math_ceil(ScriptVariant **varlist, ScriptVariant **pretvar, int paramCount)
+{
+    DOUBLE dbltemp;
+
+    switch (varlist[0]->vt) {
+        case VT_INTEGER:
+        case VT_INTEGER64:
+        case VT_UINTEGER64:
+            ScriptVariant_Copy(*pretvar, varlist[0]);
+            return S_OK;
+
+        default:
+            break;
+    }
+
+    if (ScriptVariant_DecimalValue(varlist[0], &dbltemp) == S_OK &&
+        math_set_truncated_integer(*pretvar, (DOUBLE)ceil((double)dbltemp)) == S_OK) {
+        return S_OK;
+    }
+
+    *pretvar = NULL;
+    return E_FAIL;
+}
+
+/*
+* Caskey, Damon V.
+* 2026-06-08
+*
 * Get truncated value of a variant as an integer.
 * Preserves legacy VT_INTEGER results when possible
 * and promotes to 64-bit integer carriers when needed.
