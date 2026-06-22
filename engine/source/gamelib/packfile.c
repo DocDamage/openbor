@@ -1,34 +1,54 @@
 /*
- * OpenBOR - http://www.chronocrash.com
- * -----------------------------------------------------------------------
- * All rights reserved, see LICENSE in OpenBOR root for details.
- *
- * Copyright (c)  OpenBOR Team
- */
+* OpenBOR - http://www.chronocrash.com
+* -----------------------------------------------------------------------
+* All rights reserved, see LICENSE in OpenBOR root for details.
+*
+* Copyright (c)  OpenBOR Team
+*/
 
 /*
-	Code to read files from packfiles.
-
-	============= Format description (a bit cryptical) ================
-
-	dword	4B434150 ("PACK")
-	dword	version
-	?????	filedata
-	{
-		dword	structsize
-		dword	filestart
-		dword	filesize
-		bytes	name
-	} rep
-	dword	headerstart
+* Code to read files from packfiles.
+*
+* Pack layout:
+*     dword   magic      bytes 0-3, ASCII "PACK"
+*     dword   format_id  bytes 4-7, binary numeric format id (see packfile_format enum)
+*     bytes   file data
+*     entries file table
+*     footer  table_offset
+*
+* Each table entry stores record_size, data_offset, data_size, and name bytes
+* including the trailing null. PAK32 uses 32-bit offsets, sizes, and table
+* footer. PAK64 uses 64-bit offsets, sizes, and table footer.
+*
+* Archive positions and pack sizes are stored internally as 64-bit values.
+* Individual readable assets are limited to INT_MAX bytes unless a caller is
+* known to stream and seek through the 64-bit packfile API.
 */
+
+#ifndef _FILE_OFFSET_BITS
+#define _FILE_OFFSET_BITS 64
+#endif
+#ifndef _LARGEFILE_SOURCE
+#define _LARGEFILE_SOURCE 1
+#endif
+
 #include <assert.h>
 #ifndef SPK_SUPPORTED
 
 #include "openbor.h"
+#include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#ifndef WIN
+#include <strings.h>
+#endif
+#if WIN
+#include <io.h>
+#endif
 #include "utils.h"
 #include "borendian.h"
 #include "stristr.h"
@@ -43,95 +63,490 @@
 #endif
 
 #if _POSIX_SOURCE
-#define	stricmp	strcasecmp
+#define stricmp strcasecmp
 #endif
 
 #pragma pack (1)
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// Requirements for Compressed Packfiles.
-//
-#define	MAXPACKHANDLES	8
-#define	PACKMAGIC		0x4B434150
-#define	PACKVERSION		0x00000000
+/*
+* Requirements for packfiles.
+*/
+#define MAXPACKHANDLES 8
+#define PACKMAGIC      0x4B434150U
+#define PACK_HEADER_SIZE 8U
+#define PAK32_TABLE_ENTRY_HEADER_SIZE 12U
+#define PAK64_TABLE_ENTRY_HEADER_SIZE  20U
+#define PAK32_FOOTER_SIZE 4U
+#define PAK64_FOOTER_SIZE  8U
+/*
+* PAK32 packs use unsigned 32-bit offsets and sizes on disk. The engine accepts
+* the full unsigned 32-bit range; the packer should use a lower production limit
+* so table/footer growth cannot push a PAK32 archive past this boundary.
+*/
+#define PAK32_MAXIMUM_ARCHIVE_SIZE ((packfile_size_t)UINT32_MAX)
+/*
+* filecache.c still uses signed int-sized sector math. Packs above this size
+* are valid only through the direct 64-bit reader.
+*/
+#define PACK_CACHE_MAXIMUM_SIZE ((packfile_size_t)(INT_MAX - 2047))
+/*
+* The archive format can store larger individual files, but the engine's
+* public read functions still accept int byte counts and return int byte
+* counts. Only formats with verified 64-bit streaming readers may exceed
+* this limit.
+*/
+#define PACKFILE_MAXIMUM_ASSET_SIZE ((packfile_size_t)INT_MAX)
 static const size_t USED_FLAG = (((size_t) 1) << ((sizeof(size_t) * 8) - 1));
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// This defines are only used for Cached code
-// CACHEBLOCKSIZE*CACHEBLOCKS is the size of the ever-present file cache
-// cacheblocks must be 255 or less!
-//
+/*
+* These defines are only used for cached code.
+* CACHEBLOCKSIZE * CACHEBLOCKS is the size of the ever-present file cache.
+* Cache blocks must be 255 or less.
+*/
 #define CACHEBLOCKSIZE (32768)
 #define CACHEBLOCKS    (96)
 
 static int pak_initialized;
+static int pak_cache_enabled = 1;
 int printFileUsageStatistics = 0;
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// This variables are only used for Non-Cached code
-//
-// Actual file handles.
+/*
+* These variables are only used for non-cached code.
+*/
 static int packhandle[MAXPACKHANDLES] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+static packfile_offset_t packfilepointer[MAXPACKHANDLES];
+static packfile_size_t packfilesize[MAXPACKHANDLES];
 
-// Own file pointers and sizes
-static unsigned int packfilepointer[MAXPACKHANDLES];
-static unsigned int packfilesize[MAXPACKHANDLES];
-//char packfile[128] <- defined in sdl/sdlport.c... hmmm
+/*
+* char packfile[128] is defined in sdl/sdlport.c.
+*/
 List *filenamelist = NULL;
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// This variables are only used for with Caching code
-//
-static int pakfd;
-static int paksize;
+/*
+* These variables are only used for cached code.
+*/
+static int pakfd = -1;
+static size_t pak_entry_header_size = PAK32_TABLE_ENTRY_HEADER_SIZE;
+static size_t pak_footer_size = PAK32_FOOTER_SIZE;
+static packfile_size_t paksize;
 static int pak_vfdexists[MAXPACKHANDLES];
-static int pak_vfdstart[MAXPACKHANDLES];
-static int pak_vfdsize[MAXPACKHANDLES];
-static int pak_vfdpos[MAXPACKHANDLES];
+static packfile_offset_t pak_vfdstart[MAXPACKHANDLES];
+static packfile_size_t pak_vfdsize[MAXPACKHANDLES];
+static packfile_offset_t pak_vfdpos[MAXPACKHANDLES];
 static int pak_vfdreadahead[MAXPACKHANDLES];
-static int pak_headerstart;
-static int pak_headersize;
+static packfile_offset_t pak_headerstart;
+static size_t pak_headersize;
 static unsigned char *pak_cdheader;
 static unsigned char *pak_header;
 
-/////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-//
-// Pointers to the Real Functions
-//
+typedef struct packfile_format {
+    uint32_t format_id;
+    size_t entry_header_size;
+    size_t footer_size;
+    packfile_size_t file_size;
+    packfile_offset_t table_offset;
+    packfile_offset_t table_end_offset;
+} packfile_format;
+
+/*
+* Pointers to the real functions.
+*/
 typedef int (*OpenPackfile)(const char *, const char *);
 typedef int (*ReadPackfile)(int, void *, int);
-typedef int (*SeekPackfile)(int, int, int);
+typedef packfile_signed_offset_t (*SeekPackfile64)(int, packfile_signed_offset_t, int);
 typedef int (*ClosePackfile)(int);
 
 int openPackfile(const char *, const char *);
 int readPackfile(int, void *, int);
+packfile_signed_offset_t seekPackfile64(int, packfile_signed_offset_t, int);
 int seekPackfile(int, int, int);
 int closePackfile(int);
 int openPackfileCached(const char *, const char *);
 int readPackfileCached(int, void *, int);
+packfile_signed_offset_t seekPackfileCached64(int, packfile_signed_offset_t, int);
 int seekPackfileCached(int, int, int);
 int closePackfileCached(int);
 
-static OpenPackfile pOpenPackfile;
-static ReadPackfile pReadPackfile;
-static SeekPackfile pSeekPackfile;
-static ClosePackfile pClosePackfile;
+static OpenPackfile pOpenPackfile = openPackfile;
+static ReadPackfile pReadPackfile = readPackfile;
+static SeekPackfile64 pSeekPackfile64 = seekPackfile64;
+static ClosePackfile pClosePackfile = closePackfile;
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// Generic but useful functions
-//
+/*
+* Portable 64-bit seek and read helpers.
+*/
+static packfile_signed_offset_t packfile_seek_fd(int file_descriptor, packfile_signed_offset_t offset, int whence) {
+#if WIN
+    return (packfile_signed_offset_t)_lseeki64(file_descriptor, offset, whence);
+#else
+    off_t result;
 
-char tolowerOneChar(const char *c)
-{
-    static const char diff = 'a' - 'A';
-    switch(*c)
-    {
+    result = lseek(file_descriptor, (off_t)offset, whence);
+    if(result == (off_t)-1)  {
+        return -1;
+    }
+    return (packfile_signed_offset_t)result;
+#endif
+}
+
+static int packfile_seek_fd_unsigned(int file_descriptor, packfile_offset_t offset, int whence) {
+    if(offset > (packfile_offset_t)INT64_MAX)  {
+        return -1;
+    }
+    return packfile_seek_fd(file_descriptor, (packfile_signed_offset_t)offset, whence) < 0 ? -1 : 0;
+}
+
+static int packfile_read_exact_fd(int file_descriptor, void *buffer, size_t bytes_to_read) {
+    unsigned char *write_position = (unsigned char *)buffer;
+
+    while(bytes_to_read > 0)  {
+        int bytes_read;
+        size_t chunk_size = bytes_to_read;
+
+        if(chunk_size > (size_t)INT_MAX)  {
+            chunk_size = (size_t)INT_MAX;
+        }
+
+        bytes_read = (int)read(file_descriptor, write_position, (unsigned int)chunk_size);
+        if(bytes_read <= 0)  {
+            return 0;
+        }
+
+        write_position += bytes_read;
+        bytes_to_read -= (size_t)bytes_read;
+    }
+
+    return 1;
+}
+
+static uint32_t packfile_read_lsb32_from_memory(const unsigned char *source) {
+    return ((uint32_t)source[0]) |
+           ((uint32_t)source[1] << 8) |
+           ((uint32_t)source[2] << 16) |
+           ((uint32_t)source[3] << 24);
+}
+
+static uint64_t packfile_read_lsb64_from_memory(const unsigned char *source) {
+    return ((uint64_t)source[0]) |
+           ((uint64_t)source[1] << 8) |
+           ((uint64_t)source[2] << 16) |
+           ((uint64_t)source[3] << 24) |
+           ((uint64_t)source[4] << 32) |
+           ((uint64_t)source[5] << 40) |
+           ((uint64_t)source[6] << 48) |
+           ((uint64_t)source[7] << 56);
+}
+
+static int packfile_read_lsb32_fd(int file_descriptor, uint32_t *value) {
+    unsigned char bytes[4];
+
+    if(!packfile_read_exact_fd(file_descriptor, bytes, sizeof(bytes)))  {
+        return 0;
+    }
+    *value = packfile_read_lsb32_from_memory(bytes);
+    return 1;
+}
+
+static int packfile_read_lsb64_fd(int file_descriptor, uint64_t *value) {
+    unsigned char bytes[8];
+
+    if(!packfile_read_exact_fd(file_descriptor, bytes, sizeof(bytes)))  {
+        return 0;
+    }
+    *value = packfile_read_lsb64_from_memory(bytes);
+    return 1;
+}
+
+static size_t packfile_entry_header_size_for_footer(size_t footer_size) {
+    return footer_size == PAK64_FOOTER_SIZE ? PAK64_TABLE_ENTRY_HEADER_SIZE : PAK32_TABLE_ENTRY_HEADER_SIZE;
+}
+
+static int packfile_read_footer_candidate(int file_descriptor, packfile_size_t file_size, size_t footer_size, packfile_offset_t *table_offset) {
+    uint32_t pak32_offset;
+    uint64_t pak64_offset;
+
+    /*
+    * A valid pack begins with the 8-byte magic/format_id header and ends with
+    * either a 32-bit PAK32 footer or a 64-bit PAK64 footer.
+    */
+    if(file_size < (packfile_size_t)(PACK_HEADER_SIZE + footer_size))  {
+        return 0;
+    }
+
+    if(packfile_seek_fd(file_descriptor, -(packfile_signed_offset_t)footer_size, SEEK_END) < 0)  {
+        return 0;
+    }
+
+    if(footer_size == PAK64_FOOTER_SIZE)  {
+        if(!packfile_read_lsb64_fd(file_descriptor, &pak64_offset))  {
+            return 0;
+        }
+        *table_offset = (packfile_offset_t)pak64_offset;
+    }
+    else  {
+        if(!packfile_read_lsb32_fd(file_descriptor, &pak32_offset))  {
+            return 0;
+        }
+        *table_offset = (packfile_offset_t)pak32_offset;
+    }
+
+    return 1;
+}
+
+static int packfile_validate_table_candidate(int file_descriptor, packfile_size_t file_size, size_t footer_size, packfile_offset_t table_offset) {
+    uint32_t record_size;
+    size_t entry_header_size = packfile_entry_header_size_for_footer(footer_size);
+    packfile_offset_t table_end_offset;
+
+    if(file_size < footer_size)  {
+        return 0;
+    }
+
+    table_end_offset = file_size - footer_size;
+    if(table_offset < PACK_HEADER_SIZE || table_offset > table_end_offset)  {
+        return 0;
+    }
+
+    if(table_offset == table_end_offset)  {
+        return 1;
+    }
+
+    if(table_end_offset - table_offset < entry_header_size)  {
+        return 0;
+    }
+
+    if(packfile_seek_fd_unsigned(file_descriptor, table_offset, SEEK_SET) < 0)  {
+        return 0;
+    }
+
+    if(!packfile_read_lsb32_fd(file_descriptor, &record_size))  {
+        return 0;
+    }
+
+    if(record_size <= entry_header_size)  {
+        return 0;
+    }
+
+    if((packfile_offset_t)record_size > table_end_offset - table_offset)  {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int packfile_detect_table_format(int file_descriptor, packfile_size_t file_size, uint32_t format_id, packfile_format *format) {
+    packfile_offset_t table_offset;
+    size_t footer_size;
+
+    if(format_id == PAK_FORMAT_PAK64)  {
+        footer_size = PAK64_FOOTER_SIZE;
+    }
+    else if(format_id == PAK_FORMAT_PAK32)  {
+        /*
+        * PAK32 packs are only accepted when the final archive fits the
+        * unsigned 32-bit on-disk offset model. The packer may enforce a lower
+        * data-size limit to leave room for the table and footer, but the engine
+        * should accept any completed PAK32 pack that remains in range.
+        */
+        if(file_size > PAK32_MAXIMUM_ARCHIVE_SIZE)  {
+            return 0;
+        }
+        footer_size = PAK32_FOOTER_SIZE;
+    }
+    else  {
+        return 0;
+    }
+
+    if(!packfile_read_footer_candidate(file_descriptor, file_size, footer_size, &table_offset) ||
+       !packfile_validate_table_candidate(file_descriptor, file_size, footer_size, table_offset))  {
+        return 0;
+    }
+
+    format->format_id = format_id;
+    format->footer_size = footer_size;
+    format->entry_header_size = packfile_entry_header_size_for_footer(footer_size);
+    format->file_size = file_size;
+    format->table_offset = table_offset;
+    format->table_end_offset = file_size - footer_size;
+    return 1;
+}
+
+static int packfile_read_format_fd(int file_descriptor, packfile_format *format) {
+    uint32_t magic;
+    uint32_t format_id;
+    packfile_signed_offset_t file_size;
+
+    if(packfile_seek_fd(file_descriptor, 0, SEEK_SET) < 0)  {
+        return 0;
+    }
+
+    if(!packfile_read_lsb32_fd(file_descriptor, &magic) || magic != PACKMAGIC)  {
+        return 0;
+    }
+
+    if(!packfile_read_lsb32_fd(file_descriptor, &format_id))  {
+        return 0;
+    }
+
+    file_size = packfile_seek_fd(file_descriptor, 0, SEEK_END);
+    if(file_size < 0)  {
+        return 0;
+    }
+
+    return packfile_detect_table_format(file_descriptor, (packfile_size_t)file_size, format_id, format);
+}
+
+static int packfile_read_entry_fd(int file_descriptor, const packfile_format *format, packfile_offset_t table_position, packfile_entry *entry) {
+    uint32_t record_size;
+    uint32_t pak32_offset;
+    uint32_t pak32_size;
+    uint64_t pak64_offset;
+    uint64_t pak64_size;
+    packfile_size_t name_bytes;
+    size_t bytes_to_copy;
+
+    memset(entry, 0, sizeof(*entry));
+
+    if(table_position >= format->table_end_offset)  {
+        return 0;
+    }
+
+    if((format->table_end_offset - table_position) < format->entry_header_size)  {
+        return 0;
+    }
+
+    if(packfile_seek_fd_unsigned(file_descriptor, table_position, SEEK_SET) < 0)  {
+        return 0;
+    }
+
+    if(!packfile_read_lsb32_fd(file_descriptor, &record_size))  {
+        return 0;
+    }
+
+    if(record_size <= format->entry_header_size || (packfile_offset_t)record_size > format->table_end_offset - table_position)  {
+        return 0;
+    }
+
+    if(format->entry_header_size == PAK64_TABLE_ENTRY_HEADER_SIZE)  {
+        if(!packfile_read_lsb64_fd(file_descriptor, &pak64_offset) || !packfile_read_lsb64_fd(file_descriptor, &pak64_size))  {
+            return 0;
+        }
+        entry->data_offset = (packfile_offset_t)pak64_offset;
+        entry->data_size = (packfile_size_t)pak64_size;
+    }
+    else  {
+        if(!packfile_read_lsb32_fd(file_descriptor, &pak32_offset) || !packfile_read_lsb32_fd(file_descriptor, &pak32_size))  {
+            return 0;
+        }
+        entry->data_offset = (packfile_offset_t)pak32_offset;
+        entry->data_size = (packfile_size_t)pak32_size;
+    }
+
+    entry->record_size = record_size;
+    name_bytes = (packfile_size_t)record_size - format->entry_header_size;
+    bytes_to_copy = name_bytes < (sizeof(entry->name) - 1) ? (size_t)name_bytes : (sizeof(entry->name) - 1);
+
+    if(bytes_to_copy > 0 && !packfile_read_exact_fd(file_descriptor, entry->name, bytes_to_copy))  {
+        return 0;
+    }
+    entry->name[bytes_to_copy] = '\0';
+
+    return 1;
+}
+
+static int packfile_data_range_is_valid(packfile_offset_t data_offset, packfile_size_t data_size, packfile_offset_t table_offset) {
+    if(data_offset < PACK_HEADER_SIZE)  {
+        return 0;
+    }
+
+    if(data_offset > table_offset)  {
+        return 0;
+    }
+
+    if(data_size > table_offset - data_offset)  {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int packfile_entry_data_range_is_valid(const packfile_format *format, const packfile_entry *entry) {
+    return packfile_data_range_is_valid(entry->data_offset, entry->data_size, format->table_offset);
+}
+
+static int packfile_asset_size_limit_exempt(const char *asset_name) {
+    const char *extension;
+
+    if(!asset_name)  {
+        return 0;
+    }
+
+    extension = strrchr(asset_name, '.');
+    return extension && !stricmp(extension, ".webm");
+}
+
+static int packfile_asset_size_is_supported(packfile_size_t asset_size, const char *asset_name) {
+    if(asset_size <= PACKFILE_MAXIMUM_ASSET_SIZE || packfile_asset_size_limit_exempt(asset_name))  {
+        return 1;
+    }
+
+    printf("asset exceeds engine file size limit: %s (%" PRIu64 " bytes, max %" PRIu64 ")\n",
+           asset_name ? asset_name : "(unknown)",
+           (uint64_t)asset_size,
+           (uint64_t)PACKFILE_MAXIMUM_ASSET_SIZE);
+    return 0;
+}
+
+static size_t packfile_cached_entry_name_offset(void) {
+    return pak_entry_header_size;
+}
+
+static uint32_t packfile_cached_record_size(size_t header_offset) {
+    return packfile_read_lsb32_from_memory(pak_header + header_offset);
+}
+
+static packfile_offset_t packfile_cached_data_offset(size_t header_offset) {
+    if(pak_entry_header_size == PAK64_TABLE_ENTRY_HEADER_SIZE)  {
+        return packfile_read_lsb64_from_memory(pak_header + header_offset + 4);
+    }
+    return packfile_read_lsb32_from_memory(pak_header + header_offset + 4);
+}
+
+static packfile_size_t packfile_cached_data_size(size_t header_offset) {
+    if(pak_entry_header_size == PAK64_TABLE_ENTRY_HEADER_SIZE)  {
+        return packfile_read_lsb64_from_memory(pak_header + header_offset + 12);
+    }
+    return packfile_read_lsb32_from_memory(pak_header + header_offset + 8);
+}
+
+static int packfile_cached_data_range_is_valid(packfile_offset_t data_offset, packfile_size_t data_size) {
+    if(!packfile_data_range_is_valid(data_offset, data_size, pak_headerstart))  {
+        return 0;
+    }
+
+    if(data_size > paksize - data_offset)  {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int packfile_offset_to_int(packfile_offset_t value, int *converted) {
+    if(value > (packfile_offset_t)INT_MAX)  {
+        return 0;
+    }
+    *converted = (int)value;
+    return 1;
+}
+
+/*
+* Normalize archive path characters for case-insensitive lookup.
+* Backslashes are treated as forward slashes so paths from older Windows tools
+* match engine lookups on all supported platforms.
+*/
+static char packfile_normalized_path_character(const char *source_character) {
+    static const char uppercase_to_lowercase_delta = 'a' - 'A';
+    switch(*source_character)  {
     case 'A':
     case 'B':
     case 'C':
@@ -158,492 +573,436 @@ char tolowerOneChar(const char *c)
     case 'X':
     case 'Y':
     case 'Z':
-        return *c + diff;
+        return *source_character + uppercase_to_lowercase_delta;
     case '\\':
         return '/';
     default:
-        return *c;
+        return *source_character;
     }
-    return '\0'; //should never be reached
+    return '\0';
 }
 
-// file name lowercase in-place.
-void fnlc(char *buf)
-{
-    char *copy = buf;
-    while(copy && *copy)
-    {
-        *copy = tolowerOneChar(copy);
-        copy++;
+/*
+* Normalize a path buffer in-place before inserting it into the filename cache.
+*/
+static void packfile_normalize_path_in_place(char *path) {
+    char *current_character = path;
+    while(current_character && *current_character)  {
+        *current_character = packfile_normalized_path_character(current_character);
+        current_character++;
     }
 }
 
-// we only return 0 on success, and non 0 on failure, to speed it up
-int myfilenamecmp(const char *a, size_t asize, const char *b, size_t bsize)
-{
-    char *ca;
-    char *cb;
+/*
+* Return 0 when names match after packfile path normalization. Non-zero return
+* values mean the names are different, matching the old comparison contract.
+*/
+static int packfile_compare_names_normalized(const char *first_name, size_t first_size, const char *second_name, size_t second_size) {
+    const char *first_cursor;
+    const char *second_cursor;
 
-    if (a == b)
-    {
+    if(first_name == second_name)  {
         return 0;
     }
-    if(asize != bsize)
-    {
+    if(first_size != second_size)  {
         return 1;
     }
 
-    ca = (char *) a;
-    cb = (char *) b;
+    first_cursor = first_name;
+    second_cursor = second_name;
 
-    for (;;)
-    {
-        if (!*ca)
-        {
-            if (*cb)
-            {
-                return -1;
-            }
-            else
-            {
-                return 0;    // default exit on match
-            }
+    for(;;)  {
+        if(!*first_cursor)  {
+            return *second_cursor ? -1 : 0;
         }
-        if (!*cb)
-        {
+        if(!*second_cursor)  {
             return 1;
         }
-        if ((*ca != *cb) && (tolowerOneChar(ca) != tolowerOneChar(cb)))
-        {
+        if((*first_cursor != *second_cursor) && (packfile_normalized_path_character(first_cursor) != packfile_normalized_path_character(second_cursor)))  {
             return 1;
         }
 
-        ca++;
-        cb++;
+        first_cursor++;
+        second_cursor++;
     }
-    return -2; // should never be reached
+    return -2;
 }
 
 #if WIN
-// Convert slashes (UNIX) to backslashes (DOS).
-// Return a pointer to buffer with filename converted to DOS format.
-static char *slashback(const char *sz)
-{
-    int i = 0;
-    static char new[PACKFILE_PATH_MAX];
-    while(sz[i] && i < PACKFILE_PATH_MAX - 1)
-    {
-        new[i] = sz[i];
-        if(new[i] == '/')
-        {
-            new[i] = '\\';
+/*
+* Convert slashes (UNIX) to backslashes (DOS).
+* Return a pointer to buffer with filename converted to DOS format.
+*/
+static char *slashback(const char *source) {
+    int index = 0;
+    static char new_path[PACKFILE_PATH_MAX];
+    while(source[index] && index < PACKFILE_PATH_MAX - 1)  {
+        new_path[index] = source[index];
+        if(new_path[index] == '/')  {
+            new_path[index] = '\\';
         }
-        ++i;
+        ++index;
     }
-    new[i] = 0;
-    return new;
+    new_path[index] = 0;
+    return new_path;
 }
 #endif
 
 #ifndef WIN
-// Convert backslashes (DOS) to forward slashes (everything else).
-// Return a pointer to buffer with filename using forward slash as separator.
-static char *slashfwd(const char *sz)
-{
-    int i = 0;
-    static char new[PACKFILE_PATH_MAX];
-    while(sz[i] && i < PACKFILE_PATH_MAX - 1)
-    {
-        new[i] = sz[i];
-        if(new[i] == '\\')
-        {
-            new[i] = '/';
+/*
+* Convert backslashes (DOS) to forward slashes (everything else).
+* Return a pointer to buffer with filename using forward slash as separator.
+*/
+static char *slashfwd(const char *source) {
+    int index = 0;
+    static char new_path[PACKFILE_PATH_MAX];
+    while(source[index] && index < PACKFILE_PATH_MAX - 1)  {
+        new_path[index] = source[index];
+        if(new_path[index] == '\\')  {
+            new_path[index] = '/';
         }
-        ++i;
+        ++index;
     }
-    new[i] = 0;
-    return new;
+    new_path[index] = 0;
+    return new_path;
 }
 #endif
 
 #ifdef LINUX
-char *casesearch(const char *dir, const char *filepath)
-{
-    DIR *d;
-    struct dirent *entry;;
-    char filename[PACKFILE_PATH_MAX] = {""}, *rest_of_path;
+char *casesearch(const char *dir, const char *filepath) {
+    DIR *directory;
+    struct dirent *entry;
+    char filename[PACKFILE_PATH_MAX] = {""};
+    char *rest_of_path;
     static char fullpath[PACKFILE_PATH_MAX];
-    int i = 0;
+    int found = 0;
 #ifdef VERBOSE
     printf("casesearch: %s, %s\n", dir, filepath);
 #endif
 
-    if ((d = opendir(dir)) == NULL)
-    {
+    if((directory = opendir(dir)) == NULL)  {
         return NULL;
     }
 
-    // are we searching for a file or a directory?
     rest_of_path = strchr(filepath, '/');
-    if (rest_of_path != NULL) // directory
-    {
-        if(rest_of_path - filepath <= 0)
-        {
+    if(rest_of_path != NULL)  {
+        if(rest_of_path - filepath <= 0)  {
+            closedir(directory);
             return NULL;
         }
         strncat(filename, filepath, rest_of_path - filepath);
         rest_of_path++;
     }
-    else
-    {
-        strcpy(filename, filepath);    // file
+    else  {
+        strcpy(filename, filepath);
     }
 
-    while ((entry = readdir(d)) != NULL)
-    {
-        if (stricmp(entry->d_name, filename) == 0)
-        {
-            i = 1;
+    while((entry = readdir(directory)) != NULL)  {
+        if(stricmp(entry->d_name, filename) == 0)  {
+            found = 1;
             break;
         }
     }
 
-    //if (entry != NULL && entry->d_name != NULL)
-    if (entry != NULL)
-    {
-        strcpy(fullpath, dir); strcat(fullpath, "/"); strcat(fullpath, entry->d_name);
+    if(entry != NULL)  {
+        strcpy(fullpath, dir);
+        strcat(fullpath, "/");
+        strcat(fullpath, entry->d_name);
     }
 
-    if (closedir(d))
-    {
+    if(closedir(directory))  {
         return NULL;
     }
-    if (i == 0)
-    {
+    if(!found)  {
         return NULL;
     }
 
     return rest_of_path == NULL ? fullpath : casesearch(fullpath, rest_of_path);
 }
-
 #endif
 
-/////////////////////////////////////////////////////////////////////////////
 
-int getFreeHandle(void)
-{
-    int h;
-    for(h = 0; h < MAXPACKHANDLES && packhandle[h] > -1; h++); // Find free handle
-    if(h >= MAXPACKHANDLES)
-    {
-        printf ("no free handles\n"); // since this condition shuts down openbor, we can savely give more info.
-        return -1;			// No free handles
+int getFreeHandle(void) {
+    int handle_index;
+    for(handle_index = 0; handle_index < MAXPACKHANDLES && packhandle[handle_index] > -1; handle_index++)  {
     }
-    return h;
+    if(handle_index >= MAXPACKHANDLES)  {
+        printf("no free handles\n");
+        return -1;
+    }
+    return handle_index;
 }
 
-
-void packfile_mode(int mode)
-{
-    if(!mode)
-    {
+void packfile_mode(int mode) {
+    if(!mode || !pak_cache_enabled)  {
         pOpenPackfile = openPackfile;
         pReadPackfile = readPackfile;
-        pSeekPackfile = seekPackfile;
+        pSeekPackfile64 = seekPackfile64;
         pClosePackfile = closePackfile;
         return;
     }
+
     pOpenPackfile = openPackfileCached;
     pReadPackfile = readPackfileCached;
-    pSeekPackfile = seekPackfileCached;
+    pSeekPackfile64 = seekPackfileCached64;
     pClosePackfile = closePackfileCached;
 }
 
 
-/////////////////////////////////////////////////////////////////////////////
-
 #if WIN
-int isRawData()
-{
-    // Kratus (11-2022) Disabled the "data" folder, runs only "paks"
-    // Turn on only to compile an .exe for password paks, maintain it off by default
-    
-    // DIR *d;
-    // if ((d = opendir("data")) == NULL)
-    // {
-    //     return 0;
-    // }
-    // else
-    // {
-    //     borShutdown(1, "Data folder conflict, please use only pak files!\n");
-    //     return 0;
-    // }
-    // closedir(d);
-    // return 0;
-
-    DIR *d;
-    if ((d = opendir("data")) == NULL)
-    {
+int isRawData() {
+    DIR *directory;
+    if((directory = opendir("data")) == NULL)  {
         return 0;
     }
-    closedir(d);
+    closedir(directory);
     return 1;
 }
 #endif
 
 #if LINUX
-int isRawData()
-{//check for data folder without case sensitivity.
-  DIR *d;
-  struct dirent *ep;     
-  d = opendir (".");
-  
-  if (d != NULL)
-  {
-    while( (ep = readdir(d)) ) 
-    {//read though all files and folders in directory.
-  if (strcasecmp("data",ep->d_name) == 0)
-      {//if data folder found.
-        (void) closedir (d);
-        return 1;
-      }
+int isRawData() {
+    DIR *directory;
+    struct dirent *entry;
+    directory = opendir(".");
+
+    if(directory != NULL)  {
+        while((entry = readdir(directory)))  {
+            if(strcasecmp("data", entry->d_name) == 0)  {
+                (void)closedir(directory);
+                return 1;
+            }
+        }
     }
-  }
-  (void) closedir (d);
-  return 0;
+    if(directory != NULL)  {
+        (void)closedir(directory);
+    }
+    return 0;
 }
 #endif
 
-/////////////////////////////////////////////////////////////////////////////
 
-int openpackfile(const char *filename, const char *packfilename)
-{    
-
+int openpackfile(const char *filename, const char *packfilename) {
 #ifdef VERBOSE
     char *pointsto;
 
-    if (pOpenPackfile == openPackfileCached)
-    {
-        pointsto = "oPackCached";
+    if(pOpenPackfile == openPackfileCached)  {
+        pointsto = "openPackfileCached";
     }
-    else if (pOpenPackfile == openPackfile)
-    {
-        pointsto = "openPackFile";
+    else if(pOpenPackfile == openPackfile)  {
+        pointsto = "openPackfile";
     }
-    else
-    {
+    else  {
         pointsto = "unknown destination";
     }
-    printf ("openpackfile called: f: %s, p: %s, dest: %s\n", filename, packfilename, pointsto);
+    printf("openpackfile called: f: %s, p: %s, dest: %s\n", filename, packfilename, pointsto);
 #endif
     return pOpenPackfile(filename, packfilename);
 }
 
 int openPackfile(const char *filename, const char *packfilename) {
-
-    int h, handle;
-    unsigned int magic, version, headerstart, p;
-    pnamestruct pn;
+    int virtual_handle;
+    int real_handle;
+    int file_permission = 666;
     const char *disk_filename;
     const char *pak_filename;
-
+    packfile_format format;
+    packfile_entry entry;
+    packfile_offset_t table_position;
 #ifdef LINUX
-    char *fspath;
+    char *case_corrected_path;
 #endif
 
-    h = getFreeHandle();
-    if (h == -1) {
+    virtual_handle = getFreeHandle();
+    if(virtual_handle == -1)  {
         return -1;
     }
 
 #ifdef WIN
-    // Windows loose-file lookup can use backslashes.
     disk_filename = slashback(filename);
 #else
-    // Non-Windows loose-file lookup should use forward slashes.
     disk_filename = slashfwd(filename);
 #endif
 
-    // PAK lookup should compare normalized logical asset paths,
-    // not OS-specific filesystem paths.
     pak_filename = filename;
+    packfilepointer[virtual_handle] = 0;
+    packfilesize[virtual_handle] = 0;
 
-    packfilepointer[h] = 0;
-    int file_permission = 666;
+    /*
+    * Loose file override: prefer a separate file over the same file inside the pack.
+    */
+    real_handle = open(disk_filename, O_RDONLY | O_BINARY, file_permission);
+    if(real_handle != -1)  {
+        packfile_signed_offset_t loose_file_size;
 
-    // Separate file present?
-    if((handle = open(disk_filename, O_RDONLY | O_BINARY, file_permission)) != -1) {
-        if((packfilesize[h] = lseek(handle, 0, SEEK_END)) == -1) {
-            close(handle);
+        loose_file_size = packfile_seek_fd(real_handle, 0, SEEK_END);
+        if(loose_file_size < 0 || packfile_seek_fd(real_handle, 0, SEEK_SET) < 0)  {
+            close(real_handle);
             return -1;
         }
 
-        if(lseek(handle, 0, SEEK_SET) == -1){
-            close(handle);
+        if(!packfile_asset_size_is_supported((packfile_size_t)loose_file_size, disk_filename))  {
+            close(real_handle);
             return -1;
         }
 
-        packhandle[h] = handle;
-        return h;
+        packhandle[virtual_handle] = real_handle;
+        packfilesize[virtual_handle] = (packfile_size_t)loose_file_size;
+        return virtual_handle;
     }
 
 #ifdef LINUX
-    // Try a case-insensitive search for a separate file.
-    fspath = casesearch(".", disk_filename);
-    if (fspath != NULL) {
-        if((handle = open(fspath, O_RDONLY | O_BINARY, file_permission)) != -1) {
-            if((packfilesize[h] = lseek(handle, 0, SEEK_END)) == -1){
-                close(handle);
+    /*
+    * Try a case-insensitive search for a separate file.
+    */
+    case_corrected_path = casesearch(".", disk_filename);
+    if(case_corrected_path != NULL)  {
+        real_handle = open(case_corrected_path, O_RDONLY | O_BINARY, file_permission);
+        if(real_handle != -1)  {
+            packfile_signed_offset_t loose_file_size;
+
+            loose_file_size = packfile_seek_fd(real_handle, 0, SEEK_END);
+            if(loose_file_size < 0 || packfile_seek_fd(real_handle, 0, SEEK_SET) < 0)  {
+                close(real_handle);
                 return -1;
             }
 
-            if(lseek(handle, 0, SEEK_SET) == -1) {
-                close(handle);
+            if(!packfile_asset_size_is_supported((packfile_size_t)loose_file_size, case_corrected_path))  {
+                close(real_handle);
                 return -1;
             }
 
-            packhandle[h] = handle;
-            return h;
+            packhandle[virtual_handle] = real_handle;
+            packfilesize[virtual_handle] = (packfile_size_t)loose_file_size;
+            return virtual_handle;
         }
     }
 #endif
 
-    // Try to open packfile
-    if((handle = open(packfilename, O_RDONLY | O_BINARY, file_permission)) == -1) {
+    real_handle = open(packfilename, O_RDONLY | O_BINARY, file_permission);
+    if(real_handle == -1)  {
         return -1;
     }
 
-    if(read(handle, &magic, 4) != 4) {
-        close(handle);
+    if(!packfile_read_format_fd(real_handle, &format))  {
+        close(real_handle);
         return -1;
     }
 
-    if(read(handle, &version, 4) != 4 || version != SwapLSB32(PACKVERSION)) {
-        close(handle);
-        return -1;
-    }
+    table_position = format.table_offset;
+    while(table_position < format.table_end_offset)  {
+        if(!packfile_read_entry_fd(real_handle, &format, table_position, &entry))  {
+            break;
+        }
 
-    if(lseek(handle, -4, SEEK_END) == -1) {
-        close(handle);
-        return -1;
-    }
-
-    if(read(handle, &headerstart, 4) != 4) {
-        close(handle);
-        return -1;
-    }
-
-    headerstart = SwapLSB32(headerstart);
-
-    if(lseek(handle, headerstart, SEEK_SET) == -1) {
-        close(handle);
-        return -1;
-    }
-
-    p = headerstart;
-
-    while(read(handle, &pn, sizeof(pn)) > 12) {
-        pn.filesize = SwapLSB32(pn.filesize);
-        pn.filestart = SwapLSB32(pn.filestart);
-        pn.pns_len = SwapLSB32(pn.pns_len);
-
-        if(myfilenamecmp(pak_filename, strlen(pak_filename), pn.namebuf, strlen(pn.namebuf)) == 0) {
-            packhandle[h] = handle;
-            packfilesize[h] = pn.filesize;
-
-            if(lseek(handle, pn.filestart, SEEK_SET) == -1) {
-                close(handle);
+        if(packfile_compare_names_normalized(pak_filename, strlen(pak_filename), entry.name, strlen(entry.name)) == 0)  {
+            if(!packfile_entry_data_range_is_valid(&format, &entry) ||
+               !packfile_asset_size_is_supported(entry.data_size, entry.name))  {
+                close(real_handle);
                 return -1;
             }
 
-            return h;
+            if(packfile_seek_fd_unsigned(real_handle, entry.data_offset, SEEK_SET) < 0)  {
+                close(real_handle);
+                return -1;
+            }
+
+            packhandle[virtual_handle] = real_handle;
+            packfilesize[virtual_handle] = entry.data_size;
+            packfilepointer[virtual_handle] = 0;
+            return virtual_handle;
         }
 
-        p += pn.pns_len;
-
-        if(lseek(handle, p, SEEK_SET) == -1) {
-            close(handle);
-            return -1;
-        }
+        table_position += entry.record_size;
     }
 
-    close(handle);
+    close(real_handle);
     return -1;
 }
 
-void update_filecache_vfd(int vfd)
-{
-    if(pak_vfdexists[vfd])
-    {
-        filecache_setvfd(vfd, pak_vfdstart[vfd], (pak_vfdstart[vfd] + pak_vfdpos[vfd]) / CACHEBLOCKSIZE, (pak_vfdreadahead[vfd] + (CACHEBLOCKSIZE - 1)) / CACHEBLOCKSIZE);
+void update_filecache_vfd(int virtual_file_descriptor) {
+    int start_block;
+    int read_block;
+    int readahead_blocks;
+
+    if(pak_vfdexists[virtual_file_descriptor])  {
+        if(!packfile_offset_to_int(pak_vfdstart[virtual_file_descriptor] / CACHEBLOCKSIZE, &start_block) ||
+           !packfile_offset_to_int((pak_vfdstart[virtual_file_descriptor] + pak_vfdpos[virtual_file_descriptor]) / CACHEBLOCKSIZE, &read_block))  {
+            filecache_setvfd(virtual_file_descriptor, -1, -1, 0);
+            return;
+        }
+
+        readahead_blocks = (pak_vfdreadahead[virtual_file_descriptor] + (CACHEBLOCKSIZE - 1)) / CACHEBLOCKSIZE;
+        filecache_setvfd(virtual_file_descriptor, start_block, read_block, readahead_blocks);
     }
-    else
-    {
-        filecache_setvfd(vfd, -1, -1, 0);
+    else  {
+        filecache_setvfd(virtual_file_descriptor, -1, -1, 0);
     }
 }
 
-void makefilenamecache(void)
-{
-    ptrdiff_t hpos;
+void makefilenamecache(void) {
+    size_t header_position;
+    size_t name_offset;
+    uint32_t record_size;
     char target[PACKFILE_PATH_MAX];
 
-    if(!filenamelist)
-    {
+    if(!filenamelist)  {
         filenamelist = malloc(sizeof(List));
     }
     List_Init(filenamelist);
 
-    // look for filename in the header
-
-    hpos = 0;
-    for(;;)
-    {
-        if((hpos + 12) >= pak_headersize)
-        {
+    name_offset = packfile_cached_entry_name_offset();
+    header_position = 0;
+    for(;;)  {
+        if((header_position + pak_entry_header_size) >= pak_headersize)  {
             return;
         }
-        strncpy(target, (char *)pak_header + hpos + 12, PACKFILE_PATH_MAX - 1);
-        fnlc(target);
-        List_InsertAfter(filenamelist, (void *) hpos, target);
-        hpos += readlsb32(pak_header + hpos);
+
+        record_size = packfile_cached_record_size(header_position);
+        if(record_size <= pak_entry_header_size || (header_position + record_size) > pak_headersize)  {
+            return;
+        }
+
+        if((header_position & USED_FLAG) == USED_FLAG)  {
+            printf("pack header is too large for filename usage tracking\n");
+            return;
+        }
+
+        strncpy(target, (char *)pak_header + header_position + name_offset, PACKFILE_PATH_MAX - 1);
+        target[PACKFILE_PATH_MAX - 1] = '\0';
+        packfile_normalize_path_in_place(target);
+        List_InsertAfter(filenamelist, (void *)header_position, target);
+        header_position += record_size;
     }
 }
 
-void freefilenamecache(void)
-{
-    Node *n;
+void freefilenamecache(void) {
+    Node *node;
     size_t count = 0;
     size_t total = 0;
-    if(filenamelist)
-    {
-        if(printFileUsageStatistics)
-        {
+    if(filenamelist)  {
+        if(printFileUsageStatistics)  {
             printf("unused files in the pack:\n");
             List_GotoFirst(filenamelist);
-            n = List_GetCurrentNode(filenamelist);
-            while(n)
-            {
-                if(((size_t) n->value & USED_FLAG) != USED_FLAG)
-                {
+            node = List_GetCurrentNode(filenamelist);
+            while(node)  {
+                total++;
+                if(((size_t)node->value & USED_FLAG) != USED_FLAG)  {
                     count++;
-                    printf("%s\n", n->name);
+                    printf("%s\n", node->name);
                 }
-                if(List_GotoNext(filenamelist))
-                {
-                    n = List_GetCurrentNode(filenamelist);
+                if(List_GotoNext(filenamelist))  {
+                    node = List_GetCurrentNode(filenamelist);
                 }
-                else
-                {
+                else  {
                     break;
                 }
-                total++;
             }
-            printf("Summary: %d of %d files have been unused\n", (int) count, (int) total);
+            printf("Summary: %d of %d unused files.\n", (int)count, (int)total);
             printf("WARNING\n");
-            printf("to be completely sure if a file is unused, you have to play the entire mod\n");
+            printf("to be completely sure if a file is unused, you have to play the entire game.\n");
             printf("in every possible branch, including every possible player, and so forth.\n");
-            printf("so only remove stuff from a foreign mod if you're completely sure that it is unused.\n");
+            printf("so only remove stuff from a foreign project if you're completely sure that it is unused.\n");
         }
         List_Clear(filenamelist);
         free(filenamelist);
@@ -651,278 +1010,275 @@ void freefilenamecache(void)
     }
 }
 
-int openreadaheadpackfile(const char *filename, const char *packfilename, int readaheadsize, int prebuffersize)
-{
-    size_t hpos;
-    int vfd;
-    size_t fnl;
-    size_t al;
+int openreadaheadpackfile(const char *filename, const char *packfilename, int readaheadsize, int prebuffersize) {
+    size_t header_position;
+    int virtual_file_descriptor;
+    size_t packfile_name_length;
+    size_t requested_packfile_name_length;
+    packfile_offset_t data_offset;
+    packfile_size_t data_size;
     char target[PACKFILE_PATH_MAX];
-    Node *n;
+    Node *node;
 
-    if(packfilename != packfile)
-    {
-        fnl = strlen(packfile);
-        al = strlen(packfilename);
-        if(myfilenamecmp(packfilename, al, packfile, fnl))
-        {
+    if(!pak_cache_enabled)  {
+        return openPackfile(filename, packfilename);
+    }
+
+    if(packfilename != packfile)  {
+        packfile_name_length = strlen(packfile);
+        requested_packfile_name_length = strlen(packfilename);
+        if(packfile_compare_names_normalized(packfilename, requested_packfile_name_length, packfile, packfile_name_length))  {
             printf("tried to open from unknown pack file (%s)\n", packfilename);
             return -1;
         }
     }
 
-    if(!filenamelist)
-    {
+    if(!filenamelist)  {
         makefilenamecache();
     }
 
     strncpy(target, filename, PACKFILE_PATH_MAX - 1);
-    fnlc(target);
+    target[PACKFILE_PATH_MAX - 1] = '\0';
+    packfile_normalize_path_in_place(target);
 
-    n = List_GetNodeByName(filenamelist, target);
-    if (!n)
-    {
+    node = List_GetNodeByName(filenamelist, target);
+    if(!node)  {
         return -1;
     }
 
-    hpos = (size_t) n->value & ~USED_FLAG;
-    n->value = (void *) (((size_t) n->value) | USED_FLAG);
+    header_position = (size_t)node->value & ~USED_FLAG;
+    node->value = (void *)(((size_t)node->value) | USED_FLAG);
 
-    // find a free vfd
-    for(vfd = 0; vfd < MAXPACKHANDLES; vfd++) if(!pak_vfdexists[vfd])
-        {
+    for(virtual_file_descriptor = 0; virtual_file_descriptor < MAXPACKHANDLES; virtual_file_descriptor++)  {
+        if(!pak_vfdexists[virtual_file_descriptor])  {
             break;
         }
-    if(vfd >= MAXPACKHANDLES)
-    {
+    }
+    if(virtual_file_descriptor >= MAXPACKHANDLES)  {
         return -1;
     }
 
-    pak_vfdstart[vfd] = readlsb32(pak_header + hpos + 4);
-    pak_vfdsize[vfd] = readlsb32(pak_header + hpos + 8);
-
-    pak_vfdpos[vfd] = 0;
-    pak_vfdexists[vfd] = 1;
-    pak_vfdreadahead[vfd] = readaheadsize;
-
-    // notify filecache that we have a new vfd
-    update_filecache_vfd(vfd);
-
-    // if we want prebuffering, wait for it
-    if(prebuffersize > 0)
-    {
-        filecache_wait_for_prebuffer(vfd, (prebuffersize + ((CACHEBLOCKSIZE) - 1)) / CACHEBLOCKSIZE);
+    data_offset = packfile_cached_data_offset(header_position);
+    data_size = packfile_cached_data_size(header_position);
+    if(!packfile_cached_data_range_is_valid(data_offset, data_size) ||
+       !packfile_asset_size_is_supported(data_size, target))  {
+        return -1;
     }
-    return vfd;
+
+    pak_vfdstart[virtual_file_descriptor] = data_offset;
+    pak_vfdsize[virtual_file_descriptor] = data_size;
+    pak_vfdpos[virtual_file_descriptor] = 0;
+    pak_vfdexists[virtual_file_descriptor] = 1;
+    pak_vfdreadahead[virtual_file_descriptor] = readaheadsize;
+
+    update_filecache_vfd(virtual_file_descriptor);
+
+    if(prebuffersize > 0)  {
+        filecache_wait_for_prebuffer(virtual_file_descriptor, (prebuffersize + (CACHEBLOCKSIZE - 1)) / CACHEBLOCKSIZE);
+    }
+    return virtual_file_descriptor;
 }
 
-int openPackfileCached(const char *filename, const char *packfilename)
-{
+int openPackfileCached(const char *filename, const char *packfilename) {
     return openreadaheadpackfile(filename, packfilename, 0, 0);
 }
 
-/////////////////////////////////////////////////////////////////////////////
 
-int readpackfile(int handle, void *buf, int len)
-{
+int readpackfile(int handle, void *buf, int len) {
     return pReadPackfile(handle, buf, len);
 }
 
-int readPackfile(int handle, void *buf, int len)
-{
-    int realhandle;
-    if(handle < 0 || handle >= MAXPACKHANDLES)
-    {
+int readPackfile(int handle, void *buf, int len) {
+    int real_handle;
+    packfile_size_t bytes_remaining;
+    int bytes_read;
+
+    if(handle < 0 || handle >= MAXPACKHANDLES)  {
         return -1;
     }
-    if(len < 0)
-    {
+    if(len < 0)  {
         return -1;
     }
-    if(len == 0)
-    {
+    if(len == 0)  {
         return 0;
     }
-    realhandle = packhandle[handle];
-    if(realhandle == -1)
-    {
+
+    real_handle = packhandle[handle];
+    if(real_handle == -1)  {
         return -1;
     }
-    if(len + packfilepointer[handle] > packfilesize[handle])
-    {
-        len = packfilesize[handle] - packfilepointer[handle];
+
+    if(packfilepointer[handle] >= packfilesize[handle])  {
+        return 0;
     }
-    if((len = read(realhandle, buf, len)) == -1)
-    {
+
+    bytes_remaining = packfilesize[handle] - packfilepointer[handle];
+    if((packfile_size_t)len > bytes_remaining)  {
+        len = bytes_remaining > (packfile_size_t)INT_MAX ? INT_MAX : (int)bytes_remaining;
+    }
+
+    bytes_read = (int)read(real_handle, buf, len);
+    if(bytes_read < 0)  {
         return -1;
     }
-    packfilepointer[handle] += len;
-    return len;
+
+    packfilepointer[handle] += (packfile_offset_t)bytes_read;
+    return (int)bytes_read;
 }
 
-int pak_isvalidhandle(int handle)
-{
-    if(handle < 0 || handle >= MAXPACKHANDLES)
-    {
+int pak_isvalidhandle(int handle) {
+    if(!pak_cache_enabled)  {
+        return (handle >= 0 && handle < MAXPACKHANDLES && packhandle[handle] != -1);
+    }
+    if(handle < 0 || handle >= MAXPACKHANDLES)  {
         return 0;
     }
-    if(!pak_vfdexists[handle])
-    {
+    if(!pak_vfdexists[handle])  {
         return 0;
     }
     return 1;
 }
 
-static int pak_rawread(int fd, unsigned char *dest, int len, int blocking)
-{
-    int end;
-    int r;
-    int total = 0;
-    int pos = pak_vfdstart[fd] + pak_vfdpos[fd];
+static int pak_rawread(int virtual_file_descriptor, unsigned char *destination, int requested_length, int blocking) {
+    packfile_offset_t absolute_position;
+    packfile_offset_t end_position;
+    packfile_offset_t virtual_file_end;
+    int total_read = 0;
 
-    if(pos < 0)
-    {
+    if(requested_length <= 0)  {
         return 0;
     }
-    if(pos >= paksize)
-    {
+
+    if(pak_vfdpos[virtual_file_descriptor] > pak_vfdsize[virtual_file_descriptor])  {
         return 0;
     }
-    if((pos + len) > paksize)
-    {
-        len = paksize - pos;
+
+    if(!packfile_cached_data_range_is_valid(pak_vfdstart[virtual_file_descriptor], pak_vfdsize[virtual_file_descriptor]))  {
+        return 0;
     }
-    end = pos + len;
 
-    update_filecache_vfd(fd);
+    absolute_position = pak_vfdstart[virtual_file_descriptor] + pak_vfdpos[virtual_file_descriptor];
+    virtual_file_end = pak_vfdstart[virtual_file_descriptor] + pak_vfdsize[virtual_file_descriptor];
+    if(absolute_position >= virtual_file_end)  {
+        return 0;
+    }
+    if((packfile_size_t)requested_length > virtual_file_end - absolute_position)  {
+        requested_length = (int)(virtual_file_end - absolute_position);
+    }
+    end_position = absolute_position + (packfile_offset_t)requested_length;
 
-    while(pos < end)
-    {
-        int b = pos / CACHEBLOCKSIZE;
-        int startthisblock = pos % CACHEBLOCKSIZE;
-        int sizethisblock = CACHEBLOCKSIZE - startthisblock;
-        if(sizethisblock > (end - pos))
-        {
-            sizethisblock = (end - pos);
-        }
-        r = filecache_readpakblock(dest, b, startthisblock, sizethisblock, blocking);
-        if(r >= 0)
-        {
-            total += r;
-            pak_vfdpos[fd] += r;
-            update_filecache_vfd(fd);
-        }
-        if(r < sizethisblock)
-        {
+    update_filecache_vfd(virtual_file_descriptor);
+
+    while(absolute_position < end_position)  {
+        int read_result;
+        int pak_block;
+        int start_this_block;
+        int size_this_block;
+
+        if(!packfile_offset_to_int(absolute_position / CACHEBLOCKSIZE, &pak_block))  {
             break;
         }
 
-        dest += sizethisblock;
-        pos += sizethisblock;
+        start_this_block = (int)(absolute_position % CACHEBLOCKSIZE);
+        size_this_block = CACHEBLOCKSIZE - start_this_block;
+        if((packfile_offset_t)size_this_block > (end_position - absolute_position))  {
+            size_this_block = (int)(end_position - absolute_position);
+        }
+
+        read_result = filecache_readpakblock(destination, pak_block, start_this_block, size_this_block, blocking);
+        if(read_result >= 0)  {
+            total_read += read_result;
+            pak_vfdpos[virtual_file_descriptor] += read_result;
+            update_filecache_vfd(virtual_file_descriptor);
+        }
+        if(read_result < size_this_block)  {
+            break;
+        }
+
+        destination += size_this_block;
+        absolute_position += size_this_block;
     }
-    return total;
+    return total_read;
 }
 
-int readpackfileblocking(int fd, void *buf, int len, int blocking)
-{
-    int n;
-    if(!pak_isvalidhandle(fd))
-    {
+int readpackfileblocking(int fd, void *buf, int len, int blocking) {
+    int bytes_read;
+
+    if(!pak_cache_enabled)  {
+        return readPackfile(fd, buf, len);
+    }
+
+    if(!pak_isvalidhandle(fd))  {
         return -1;
     }
-    if(pak_vfdpos[fd] < 0)
-    {
-        return 0;
-    }
-    if(pak_vfdpos[fd] > pak_vfdsize[fd])
-    {
+    if(pak_vfdpos[fd] > pak_vfdsize[fd])  {
         pak_vfdpos[fd] = pak_vfdsize[fd];
     }
-    if((len + pak_vfdpos[fd]) > pak_vfdsize[fd])
-    {
-        len = pak_vfdsize[fd] - pak_vfdpos[fd];
+    if((packfile_size_t)len > (pak_vfdsize[fd] - pak_vfdpos[fd]))  {
+        len = (int)(pak_vfdsize[fd] - pak_vfdpos[fd]);
     }
-    if(len < 1)
-    {
+    if(len < 1)  {
         return 0;
     }
+
     update_filecache_vfd(fd);
-    n = pak_rawread(fd, buf, len, blocking);
-    if(n < 0)
-    {
-        n = 0;
+    bytes_read = pak_rawread(fd, buf, len, blocking);
+    if(bytes_read < 0)  {
+        bytes_read = 0;
     }
-    if(pak_vfdpos[fd] > pak_vfdsize[fd])
-    {
+    if(pak_vfdpos[fd] > pak_vfdsize[fd])  {
         pak_vfdpos[fd] = pak_vfdsize[fd];
     }
     update_filecache_vfd(fd);
-    return n;
+    return bytes_read;
 }
 
-int readpackfile_noblock(int handle, void *buf, int len)
-{
+int readpackfile_noblock(int handle, void *buf, int len) {
     return readpackfileblocking(handle, buf, len, 0);
 }
 
-int readPackfileCached(int handle, void *buf, int len)
-{
+int readPackfileCached(int handle, void *buf, int len) {
     return readpackfileblocking(handle, buf, len, 1);
 }
 
-/////////////////////////////////////////////////////////////////////////////
 
-int closepackfile(int handle)
-{
+int closepackfile(int handle) {
 #ifdef VERBOSE
     char *pointsto;
 
-    if (pClosePackfile == closePackfileCached)
-    {
-        pointsto = "closePackCached";
+    if(pClosePackfile == closePackfileCached)  {
+        pointsto = "closePackfileCached";
     }
-    else if (pClosePackfile == closePackfile)
-    {
-        pointsto = "closePackFile";
+    else if(pClosePackfile == closePackfile)  {
+        pointsto = "closePackfile";
     }
-    else
-    {
+    else  {
         pointsto = "unknown destination";
     }
-    printf ("closepackfile called: h: %d, dest: %s\n", handle, pointsto);
+    printf("closepackfile called: h: %d, dest: %s\n", handle, pointsto);
 #endif
     return pClosePackfile(handle);
 }
 
-int closePackfile(int handle)
-{
-#ifdef VERBOSE
-    printf ("closePackfile called: h: %d\n", handle);
-#endif
-
-    if(handle < 0 || handle >= MAXPACKHANDLES)
-    {
-#ifdef VERBOSE
-        printf("handle too small/big\n");
-#endif
+int closePackfile(int handle) {
+    if(handle < 0 || handle >= MAXPACKHANDLES)  {
         return -1;
     }
-    if(packhandle[handle] == -1)
-    {
-#ifdef VERBOSE
-        printf("packhandle -1\n");
-#endif
+    if(packhandle[handle] == -1)  {
         return -1;
     }
     close(packhandle[handle]);
     packhandle[handle] = -1;
+    packfilepointer[handle] = 0;
+    packfilesize[handle] = 0;
     return 0;
 }
 
-int closePackfileCached(int handle)
-{
-    if(!pak_isvalidhandle(handle))
-    {
+int closePackfileCached(int handle) {
+    if(!pak_cache_enabled)  {
+        return closePackfile(handle);
+    }
+    if(!pak_isvalidhandle(handle))  {
         return -1;
     }
     pak_vfdexists[handle] = 0;
@@ -931,418 +1287,502 @@ int closePackfileCached(int handle)
 }
 
 
-/////////////////////////////////////////////////////////////////////////////
+int seekpackfile(int handle, int offset, int whence) {
+    packfile_signed_offset_t position;
 
-int seekpackfile(int handle, int offset, int whence)
-{
-    return pSeekPackfile(handle, offset, whence);
+    position = pSeekPackfile64(handle, (packfile_signed_offset_t)offset, whence);
+    if(position < 0 || position > INT_MAX)  {
+        return -1;
+    }
+    return (int)position;
 }
 
-int seekPackfile(int handle, int offset, int whence)
-{
-    int realhandle;
-    int desiredoffs;
+packfile_signed_offset_t seekpackfile64(int handle, packfile_signed_offset_t offset, int whence) {
+    return pSeekPackfile64(handle, offset, whence);
+}
 
-    if(handle < 0 || handle >= MAXPACKHANDLES)
-    {
+packfile_signed_offset_t seekPackfile64(int handle, packfile_signed_offset_t offset, int whence) {
+    int real_handle;
+    packfile_signed_offset_t desired_offset;
+    packfile_signed_offset_t seek_distance;
+
+    if(handle < 0 || handle >= MAXPACKHANDLES)  {
         return -1;
     }
-    realhandle = packhandle[handle];
-    if(realhandle == -1)
-    {
+    real_handle = packhandle[handle];
+    if(real_handle == -1)  {
         return -1;
     }
 
-    switch(whence)
-    {
+    switch(whence)  {
     case SEEK_SET:
-        desiredoffs = offset;
-        if(desiredoffs > packfilesize[handle])
-        {
-            desiredoffs = packfilesize[handle];
-        }
-        else if(desiredoffs < 0)
-        {
-            desiredoffs = 0;
-        }
+        desired_offset = offset;
         break;
-
     case SEEK_CUR:
-        desiredoffs = packfilepointer[handle] + offset;
-        if(desiredoffs > packfilesize[handle])
-        {
-            desiredoffs = packfilesize[handle];
+        if(offset > 0 && packfilepointer[handle] > (packfile_offset_t)INT64_MAX - (packfile_offset_t)offset)  {
+            return -1;
         }
-        else if(desiredoffs < 0)
-        {
-            desiredoffs = 0;
-        }
+        desired_offset = (packfile_signed_offset_t)packfilepointer[handle] + offset;
         break;
-
     case SEEK_END:
-        desiredoffs = packfilesize[handle] + offset;
-        if(desiredoffs > packfilesize[handle])
-        {
-            desiredoffs = packfilesize[handle];
+        if(offset > 0 && packfilesize[handle] > (packfile_size_t)INT64_MAX - (packfile_size_t)offset)  {
+            return -1;
         }
-        else if(desiredoffs < 0)
-        {
-            desiredoffs = 0;
-        }
+        desired_offset = (packfile_signed_offset_t)packfilesize[handle] + offset;
         break;
-
     default:
         return -1;
     }
-    desiredoffs -= packfilepointer[handle];
-    if((lseek(realhandle, desiredoffs, SEEK_CUR)) == -1)
-    {
+
+    if(desired_offset < 0)  {
+        desired_offset = 0;
+    }
+    if((packfile_size_t)desired_offset > packfilesize[handle])  {
+        desired_offset = (packfile_signed_offset_t)packfilesize[handle];
+    }
+
+    seek_distance = desired_offset - (packfile_signed_offset_t)packfilepointer[handle];
+    if(packfile_seek_fd(real_handle, seek_distance, SEEK_CUR) < 0)  {
         return -1;
     }
-    packfilepointer[handle] += desiredoffs;
-    return packfilepointer[handle];
+    packfilepointer[handle] = (packfile_offset_t)desired_offset;
+    return desired_offset;
 }
 
-int seekPackfileCached(int handle, int offset, int whence)
-{
-    if(!pak_isvalidhandle(handle))
-    {
+int seekPackfile(int handle, int offset, int whence) {
+    packfile_signed_offset_t position;
+
+    position = seekPackfile64(handle, (packfile_signed_offset_t)offset, whence);
+    if(position < 0 || position > INT_MAX)  {
         return -1;
     }
-    switch(whence)
-    {
-    case 0:
-        pak_vfdpos[handle]  = offset;
-        break; // set
-    case 1:
-        pak_vfdpos[handle] += offset;
-        break; // cur
-    case 2:
-        pak_vfdpos[handle]  = pak_vfdsize[handle] + offset;
-        break; // end
+    return (int)position;
+}
+
+packfile_signed_offset_t seekPackfileCached64(int handle, packfile_signed_offset_t offset, int whence) {
+    packfile_signed_offset_t desired_offset;
+
+    if(!pak_cache_enabled)  {
+        return seekPackfile64(handle, offset, whence);
+    }
+    if(!pak_isvalidhandle(handle))  {
+        return -1;
+    }
+
+    switch(whence)  {
+    case SEEK_SET:
+        desired_offset = offset;
+        break;
+    case SEEK_CUR:
+        desired_offset = (packfile_signed_offset_t)pak_vfdpos[handle] + offset;
+        break;
+    case SEEK_END:
+        desired_offset = (packfile_signed_offset_t)pak_vfdsize[handle] + offset;
+        break;
     default:
         return -1;
     }
-    // original code had this check too, so do it here
-    if(pak_vfdpos[handle] < 0)
-    {
-        pak_vfdpos[handle] = 0;
+
+    if(desired_offset < 0)  {
+        desired_offset = 0;
     }
-    if(pak_vfdpos[handle] > pak_vfdsize[handle])
-    {
-        pak_vfdpos[handle] = pak_vfdsize[handle];
+    if((packfile_size_t)desired_offset > pak_vfdsize[handle])  {
+        desired_offset = (packfile_signed_offset_t)pak_vfdsize[handle];
     }
+
+    pak_vfdpos[handle] = (packfile_offset_t)desired_offset;
     update_filecache_vfd(handle);
-    return pak_vfdpos[handle];
+    return desired_offset;
 }
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// returns number of sectors read successfully
-//
-static int pak_getsectors(void *dest, int lba, int n)
-{
-    lseek(pakfd, lba << 11, SEEK_SET);
-    read(pakfd, dest, n << 11);
-    return n;
+int seekPackfileCached(int handle, int offset, int whence) {
+    packfile_signed_offset_t position;
+
+    position = seekPackfileCached64(handle, (packfile_signed_offset_t)offset, whence);
+    if(position < 0 || position > INT_MAX)  {
+        return -1;
+    }
+    return (int)position;
 }
 
-/////////////////////////////////////////////////////////////////////////////
 
-void pak_term()
-{
+void pak_term() {
     int i;
-    if(!pak_initialized)
-    {
+    if(!pak_initialized)  {
         return;
     }
-    if(pak_cdheader != NULL)
-    {
+    freefilenamecache();
+    if(pak_cdheader != NULL)  {
         free(pak_cdheader);
         pak_cdheader = NULL;
+        pak_header = NULL;
     }
-    filecache_term();
-    close(pakfd);
-    pakfd           = -1;
-    paksize         = -1;
-    pak_headerstart = -1;
-    pak_headersize  = -1;
-    for(i = 0; i < MAXPACKHANDLES; i++)
-    {
-        pak_vfdexists[i]    = -1;
-        pak_vfdstart[i]     = -1;
-        pak_vfdsize[i]      = -1;
-        pak_vfdpos[i]       = -1;
-        pak_vfdreadahead[i] = -1;
+    if(pak_cache_enabled)  {
+        filecache_term();
+    }
+    if(pakfd >= 0)  {
+        close(pakfd);
+    }
+    pakfd = -1;
+    paksize = 0;
+    pak_headerstart = 0;
+    pak_headersize = 0;
+    pak_footer_size = PAK32_FOOTER_SIZE;
+    pak_entry_header_size = PAK32_TABLE_ENTRY_HEADER_SIZE;
+    pak_cache_enabled = 1;
+    for(i = 0; i < MAXPACKHANDLES; i++)  {
+        pak_vfdexists[i] = 0;
+        pak_vfdstart[i] = 0;
+        pak_vfdsize[i] = 0;
+        pak_vfdpos[i] = 0;
+        pak_vfdreadahead[i] = 0;
     }
     pak_initialized = 0;
 }
 
-/////////////////////////////////////////////////////////////////////////////
 
-int pak_init()
-{
+int pak_init() {
     int i;
-    unsigned char *sectors;
-    unsigned int magic, version;
+    int file_permission = 666;
+    packfile_format format;
+    size_t header_bytes_to_cache;
+    int pak_sector_count;
 
-    if(pak_initialized)
-    {
+    if(pak_initialized)  {
         printf("pak_init already initialized!");
         return 0;
     }
 
 #if WIN || LINUX
-    if(isRawData())
-    {
+    if(isRawData())  {
         pak_initialized = 1;
+        packfile_mode(0);
         return 0;
     }
 #endif
 
-    pOpenPackfile = openPackfileCached;
-    pReadPackfile = readPackfileCached;
-    pSeekPackfile = seekPackfileCached;
-    pClosePackfile = closePackfileCached;
+    pak_cache_enabled = 1;
+    packfile_mode(1);
 
-	int per = 666;
-    pakfd = open(packfile, O_RDONLY | O_BINARY, per);
-
-    if(pakfd < 0)
-    {
+    pakfd = open(packfile, O_RDONLY | O_BINARY, file_permission);
+    if(pakfd < 0)  {
         printf("error opening %s (%d) - could not get a valid device descriptor.\n%s\n", packfile, pakfd, strerror(errno));
         return 0;
     }
 
-    paksize = lseek(pakfd, 0, SEEK_END);
-
-    // Is it a valid Packfile
-    close(pakfd);
-    pakfd = open(packfile, O_RDONLY | O_BINARY, per);
-
-    // Read magic dword ("PACK")
-    // if(read(pakfd, &magic, 4) != 4 || magic != SwapLSB32(PACKMAGIC))
-    if(read(pakfd, &magic, 4) != 4)
-    {
+    if(!packfile_read_format_fd(pakfd, &format))  {
         close(pakfd);
-        return -1;
-    }
-    // Read version from packfile
-    if(read(pakfd, &version, 4) != 4 || version != SwapLSB32(PACKVERSION))
-    {
-        close(pakfd);
+        pakfd = -1;
         return -1;
     }
 
-    sectors = malloc(4096);
-    if(!sectors)
-    {
-        printf("sector malloc failed\n");
+    /*
+    * filecache.c still accepts int-sized pack byte/sector math. To avoid
+    * overflow there, use the direct 64-bit reader for any valid pack above
+    * the cache limit. Oversized PAK32 packs have already failed format
+    * detection before this point.
+    */
+    if(format.file_size > PACK_CACHE_MAXIMUM_SIZE)  {
+        printf("Info: %s exceeds cached pack reader limits; using direct 64-bit reader.\n", packfile);
+        close(pakfd);
+        pakfd = -1;
+        pak_cache_enabled = 0;
+        pak_initialized = 1;
+        packfile_mode(0);
         return 0;
     }
-    {
-        int getptrfrom = paksize - 4;
-        if(pak_getsectors(sectors, getptrfrom >> 11, 2) < 1)
-        {
-            printf("unable to read pak header pointer\n");
-            return 0;
-        }
-        pak_headerstart = readlsb32(sectors + (getptrfrom & 0x7FF));
-    }
-    free(sectors);
-    if(pak_headerstart >= paksize || pak_headerstart < 0)
-    {
-        printf("invalid pak header pointer\n");
+
+    pak_footer_size = format.footer_size;
+    pak_entry_header_size = format.entry_header_size;
+    paksize = format.file_size;
+    pak_headerstart = format.table_offset;
+    pak_headersize = (size_t)(format.table_end_offset - format.table_offset);
+
+    header_bytes_to_cache = pak_headersize + 1;
+    pak_cdheader = malloc(header_bytes_to_cache);
+    if(!pak_cdheader)  {
+        printf("pak header malloc failed\n");
+        close(pakfd);
+        pakfd = -1;
         return 0;
     }
-    pak_headersize = paksize - pak_headerstart;
-    {
-        // let's cache it on CD sector boundaries
-        int pak_cdheaderstart = pak_headerstart & (~0x7FF);
-        int pak_cdheadersize = ((paksize - pak_cdheaderstart) + 0x7FF) & (~0x7FF);
-        if(pak_cdheadersize > 524288)
-        {
-            // Original value was 262144, which has been doubled.
-            // I can not find a reason why it was orginally set to
-            // this size.  Hence, I have doubled it.  This could
-            // pose a problem on optical media, but that is yet to be
-            // determined.
-            printf("Warning: pak header is too large: %d / 524288\n", pak_cdheadersize);
-            //return 0;
-        }
-        pak_cdheader = malloc(pak_cdheadersize);
-        if(!pak_cdheader)
-        {
-            printf("pak_cdheader malloc failed\n");
-            return 0;
-        }
-        if(pak_getsectors(pak_cdheader, pak_cdheaderstart >> 11, pak_cdheadersize >> 11) != (pak_cdheadersize >> 11))
-        {
-            printf("unable to read pak header\n");
-            return 0;
-        }
-        // ok, header is now cached
-        pak_header = pak_cdheader + (pak_headerstart & 0x7FF);
+
+    if(packfile_seek_fd_unsigned(pakfd, pak_headerstart, SEEK_SET) < 0 || !packfile_read_exact_fd(pakfd, pak_cdheader, pak_headersize))  {
+        printf("unable to read pak header\n");
+        free(pak_cdheader);
+        pak_cdheader = NULL;
+        close(pakfd);
+        pakfd = -1;
+        return 0;
     }
-    // header does not include the last 4-byte stuff
-    if(pak_headersize >= 4)
-    {
-        pak_headersize -= 4;
-        // add a trailing null o/~
-        pak_header[pak_headersize] = 0;
-    }
-    //printf("pak cached header (%d bytes)\n", pak_headersize);
-    // initialize vfd table
-    for(i = 0; i < MAXPACKHANDLES; i++)
-    {
+    pak_header = pak_cdheader;
+    pak_header[pak_headersize] = 0;
+
+    for(i = 0; i < MAXPACKHANDLES; i++)  {
         pak_vfdexists[i] = 0;
     }
-    // finally, initialize the filecache
-    filecache_init(pakfd, (paksize + 0x7FF) / 0x800, CACHEBLOCKSIZE, CACHEBLOCKS, MAXPACKHANDLES);
+
+    pak_sector_count = (int)((paksize + 0x7FF) / 0x800);
+    filecache_init(pakfd, pak_sector_count, CACHEBLOCKSIZE, CACHEBLOCKS, MAXPACKHANDLES);
     pak_initialized = 1;
     return (CACHEBLOCKSIZE * CACHEBLOCKS + 64);
 }
 
-/////////////////////////////////////////////////////////////////////////////
 
-int packfileeof(int handle)
-{
-    if(!pak_isvalidhandle(handle))
-    {
+int packfileeof(int handle) {
+    if(!pak_cache_enabled)  {
+        if(handle < 0 || handle >= MAXPACKHANDLES || packhandle[handle] == -1)  {
+            return -1;
+        }
+        return (packfilepointer[handle] >= packfilesize[handle]);
+    }
+    if(!pak_isvalidhandle(handle))  {
         return -1;
     }
     return (pak_vfdpos[handle] >= pak_vfdsize[handle]);
 }
 
-/////////////////////////////////////////////////////////////////////////////
 
-int packfile_supported(const char *filename)
-{
-    if(stricmp(filename, "menu.pak") != 0)
-    {
-        if (stristr(filename, ".pak"))
-        {
+int packfile_supported(const char *filename) {
+    if(stricmp(filename, "menu.pak") != 0)  {
+        if(stristr(filename, ".pak"))  {
             return 1;
         }
     }
     return 0;
 }
 
-/////////////////////////////////////////////////////////////////////////////
 
-void packfile_get_titlename(char In[MAX_FILENAME_LEN], char Out[MAX_FILENAME_LEN])
-{
-    int i, x = 0, y = 0;
-    for(i = 0; i < (int)strlen(In); i++)
-    {
-        if((In[i] == '/') || (In[i] == '\\'))
-        {
-            x = i;
+static void packfile_copy_music_track_title(const char *input_path, char output_title[MAX_FILENAME_LEN]) {
+    int input_index;
+    int last_separator = 0;
+    int output_index = 0;
+
+    for(input_index = 0; input_index < (int)strlen(input_path); input_index++)  {
+        if((input_path[input_index] == '/') || (input_path[input_index] == '\\'))  {
+            last_separator = input_index;
         }
     }
-    for(i = 0; i < (int)strlen(In); i++)
-    {
-        if(i > x)
-        {
-            Out[y] = In[i];
-            y++;
+    for(input_index = 0; input_index < (int)strlen(input_path) && output_index < MAX_FILENAME_LEN - 1; input_index++)  {
+        if(input_index > last_separator)  {
+            output_title[output_index] = input_path[input_index];
+            output_index++;
         }
+    }
+    output_title[output_index] = '\0';
+}
+
+static int packfile_entry_is_music_track(const char *entry_name) {
+    const char *extension = strrchr(entry_name, '.');
+
+    if(!extension)  {
+        return 0;
+    }
+
+    return !stricmp(extension, ".bor") || !stricmp(extension, ".ogg");
+}
+
+static int packfile_count_music_tracks(int pack_descriptor, const packfile_format *format) {
+    packfile_entry entry;
+    packfile_offset_t table_position = format->table_offset;
+    int track_count = 0;
+
+    while(table_position < format->table_end_offset)  {
+        if(!packfile_read_entry_fd(pack_descriptor, format, table_position, &entry))  {
+            return -1;
+        }
+
+        if(packfile_entry_is_music_track(entry.name) &&
+           entry.data_size <= PACKFILE_MAXIMUM_ASSET_SIZE)  {
+            if(track_count == INT_MAX)  {
+                return -1;
+            }
+            track_count++;
+        }
+
+        table_position += entry.record_size;
+    }
+
+    return track_count;
+}
+
+static int packfile_allocate_music_track_list(fileliststruct *file_list_entry, int track_count) {
+    if(track_count <= 0)  {
+        file_list_entry->bgmFileName = NULL;
+        file_list_entry->bgmTracks = NULL;
+        return 1;
+    }
+
+    if((size_t)track_count > (SIZE_MAX / sizeof(*file_list_entry->bgmFileName)) ||
+       (size_t)track_count > (SIZE_MAX / sizeof(*file_list_entry->bgmTracks)))  {
+        return 0;
+    }
+
+    file_list_entry->bgmFileName = calloc((size_t)track_count, sizeof(*file_list_entry->bgmFileName));
+    file_list_entry->bgmTracks = calloc((size_t)track_count, sizeof(*file_list_entry->bgmTracks));
+
+    if(!file_list_entry->bgmFileName || !file_list_entry->bgmTracks)  {
+        free(file_list_entry->bgmFileName);
+        free(file_list_entry->bgmTracks);
+        file_list_entry->bgmFileName = NULL;
+        file_list_entry->bgmTracks = NULL;
+        return 0;
+    }
+
+    return 1;
+}
+
+static void packfile_music_clear_entry(fileliststruct *file_list_entry) {
+    free(file_list_entry->bgmFileName);
+    free(file_list_entry->bgmTracks);
+    file_list_entry->bgmFileName = NULL;
+    file_list_entry->bgmTracks = NULL;
+    file_list_entry->nTracks = 0;
+    file_list_entry->bgmTrack = 0;
+}
+
+static int packfile_populate_music_track_list(int pack_descriptor, const packfile_format *format, fileliststruct *file_list_entry) {
+    packfile_entry entry;
+    packfile_offset_t table_position = format->table_offset;
+    int track_index = 0;
+
+    while(table_position < format->table_end_offset)  {
+        if(!packfile_read_entry_fd(pack_descriptor, format, table_position, &entry))  {
+            return 0;
+        }
+
+        if(packfile_entry_is_music_track(entry.name) &&
+           entry.data_size <= PACKFILE_MAXIMUM_ASSET_SIZE)  {
+            if(track_index >= file_list_entry->nTracks)  {
+                return 0;
+            }
+            packfile_copy_music_track_title(entry.name, file_list_entry->bgmFileName[track_index]);
+            file_list_entry->bgmTracks[track_index] = table_position;
+            track_index++;
+        }
+
+        table_position += entry.record_size;
+    }
+
+    return track_index == file_list_entry->nTracks;
+}
+
+void packfile_music_init(fileliststruct *filelist, int dListTotal) {
+    int file_index;
+
+    if(!filelist)  {
+        return;
+    }
+
+    for(file_index = 0; file_index < dListTotal; file_index++)  {
+        filelist[file_index].bgmFileName = NULL;
+        filelist[file_index].bgmTracks = NULL;
+        filelist[file_index].nTracks = 0;
+        filelist[file_index].bgmTrack = 0;
     }
 }
 
-void packfile_music_read(fileliststruct *filelist, int dListTotal)
-{
-    pnamestruct pn;
-    FILE *fd;
-    int len, i;
-    unsigned int off;
-    char pack[4], *p = NULL;
-    for(i = 0; i < dListTotal; i++)
-    {
-        getBasePath(packfile, filelist[i].filename, 1);
-        if(stristr(packfile, ".pak"))
-        {
-            memset(filelist[i].bgmTracks, 0, MAX_TRACKS * sizeof(unsigned int));
-            filelist[i].nTracks = 0;
-            fd = fopen(packfile, "rb");
-            if(fd == NULL)
-            {
-                continue;
-            }
-            if(!fread(pack, 4, 1, fd))
-            {
-                goto closepak;
-            }
-            if(fseek(fd, -4, SEEK_END) < 0)
-            {
-                goto closepak;
-            }
-            if(!fread(&off, 4, 1, fd))
-            {
-                goto closepak;
-            }
-            if(fseek(fd, off, SEEK_SET) < 0)
-            {
-                goto closepak;
-            }
-            while((len = fread(&pn, 1, sizeof(pn), fd)) > 12)
-            {
-                p = strrchr(pn.namebuf, '.');
-                if((p && (!stricmp(p, ".bor") || !stricmp(p, ".ogg"))) || (stristr(pn.namebuf, "music")))
-                {
-                    if ((stristr(pn.namebuf, ".bor") || stristr(pn.namebuf, ".ogg")) && (filelist[i].nTracks < MAX_TRACKS))
-                    {
-                        packfile_get_titlename(pn.namebuf, filelist[i].bgmFileName[filelist[i].nTracks]);
-                        filelist[i].bgmTracks[filelist[i].nTracks] = off;
-                        filelist[i].nTracks++;
-                    }
-                }
+void packfile_music_free(fileliststruct *filelist, int dListTotal) {
+    int file_index;
 
-                // nextpak:
-                off += pn.pns_len;
-                if(fseek(fd, off, SEEK_SET) < 0)
-                {
-                    goto closepak;
-                }
-            }
-closepak:
-            fclose(fd);
-        }
+    if(!filelist)  {
+        return;
+    }
+
+    for(file_index = 0; file_index < dListTotal; file_index++)  {
+        packfile_music_clear_entry(&filelist[file_index]);
     }
 }
 
-/////////////////////////////////////////////////////////////////////////////
+void packfile_music_read(fileliststruct *filelist, int dListTotal) {
+    packfile_format format;
+    int pack_descriptor;
+    int file_index;
+    int track_count;
+    int file_permission = 666;
 
-int packfile_music_play(struct fileliststruct *filelist, FILE *bgmFile, int bgmLoop, int curPos, int scrPos)
-{
-    pnamestruct pn;
-    int len;
-    getBasePath(packfile, filelist[curPos + scrPos].filename, 1);
-    if (bgmFile)
-    {
+    for(file_index = 0; file_index < dListTotal; file_index++)  {
+        packfile_music_clear_entry(&filelist[file_index]);
+
+        getBasePath(packfile, filelist[file_index].filename, 1);
+        if(!stristr(packfile, ".pak"))  {
+            continue;
+        }
+
+        pack_descriptor = open(packfile, O_RDONLY | O_BINARY, file_permission);
+        if(pack_descriptor < 0)  {
+            continue;
+        }
+        if(!packfile_read_format_fd(pack_descriptor, &format))  {
+            close(pack_descriptor);
+            continue;
+        }
+
+        track_count = packfile_count_music_tracks(pack_descriptor, &format);
+        if(track_count <= 0)  {
+            close(pack_descriptor);
+            continue;
+        }
+
+        filelist[file_index].nTracks = track_count;
+        if(!packfile_allocate_music_track_list(&filelist[file_index], track_count) ||
+           !packfile_populate_music_track_list(pack_descriptor, &format, &filelist[file_index]))  {
+            packfile_music_clear_entry(&filelist[file_index]);
+        }
+
+        close(pack_descriptor);
+    }
+}
+
+
+int packfile_music_play(struct fileliststruct *filelist, FILE *bgmFile, int bgmLoop, int curPos, int scrPos) {
+    packfile_format format;
+    packfile_entry entry;
+    fileliststruct *selected_file;
+    int pack_descriptor;
+    int file_permission = 666;
+    packfile_offset_t table_position;
+
+    selected_file = &filelist[curPos + scrPos];
+    if(!selected_file->bgmTracks || selected_file->bgmTrack < 0 || selected_file->bgmTrack >= selected_file->nTracks)  {
+        return 0;
+    }
+
+    getBasePath(packfile, selected_file->filename, 1);
+    if(bgmFile)  {
         fclose(bgmFile);
         bgmFile = NULL;
     }
-    bgmFile = fopen(packfile, "rb");
-    if (!bgmFile)
-    {
+
+    if(!stristr(packfile, ".pak"))  {
         return 0;
     }
-    if (stristr(packfile, ".pak"))
-    {
-        if(fseek(bgmFile, filelist[curPos + scrPos].bgmTracks[filelist[curPos + scrPos].bgmTrack], SEEK_SET) < 0)
-        {
-            return 0;
-        }
-        if((len = fread(&pn, 1, sizeof(pn), bgmFile)) > 12)
-        {
-            sound_open_music(pn.namebuf, packfile, savedata.musicvol, bgmLoop, 0);
-        }
+
+    pack_descriptor = open(packfile, O_RDONLY | O_BINARY, file_permission);
+    if(pack_descriptor < 0)  {
+        return 0;
     }
+
+    if(!packfile_read_format_fd(pack_descriptor, &format))  {
+        close(pack_descriptor);
+        return 0;
+    }
+
+    table_position = selected_file->bgmTracks[selected_file->bgmTrack];
+    if(table_position < format.table_offset || table_position >= format.table_end_offset)  {
+        close(pack_descriptor);
+        return 0;
+    }
+
+    if(!packfile_read_entry_fd(pack_descriptor, &format, table_position, &entry) ||
+       !packfile_asset_size_is_supported(entry.data_size, entry.name))  {
+        close(pack_descriptor);
+        return 0;
+    }
+
+    close(pack_descriptor);
+    sound_open_music(entry.name, packfile, savedata.musicvol, bgmLoop, 0);
     return 1;
 }
 
 #endif
-
-
-
