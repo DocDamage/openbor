@@ -62,6 +62,13 @@ typedef uint64_t pak_offset_t;
 typedef uint64_t pak_size_t;
 
 /*
+* Non-streamed assets are capped to the engine's int-sized
+* public read API. PAK64 may carry larger streamed media
+* when the engine has a dedicated 64-bit seek/tell path for it.
+*/
+#define PAK_NONSTREAMED_ASSET_LIMIT ((pak_size_t)INT_MAX)
+
+/*
 * PAK32 is the compatibility format for older 
 * engines, so the packer keeps its completed 
 * archives under the signed 32-bit file-position 

@@ -90,6 +90,7 @@ const char *format_name(pak_format_t format) {
 static const double pak32_data_limit_gb = (double)PAK32_DATA_LIMIT / 1000000000.0;
 static const double pak32_table_cushion_gb = (double)PAK32_TABLE_CUSHION / 1000000000.0;
 static const double pak32_archive_limit_gb = (double)PAK32_ARCHIVE_LIMIT / 1000000000.0;
+static const double pak_nonstreamed_asset_limit_gb = (double)PAK_NONSTREAMED_ASSET_LIMIT / 1000000000.0;
 
 /*
 * Caskey, Damon V.
@@ -108,6 +109,8 @@ void print_format_details(pak_format_t format) {
 	} else {
 		printf("- PAK64 format id: %u\n", (unsigned int)PAK_FORMAT_PAK64);
 		printf("- PAK64 offsets/sizes: 64-bit\n");
+		printf("- PAK64 non-streamed asset limit: %.2f GB\n", pak_nonstreamed_asset_limit_gb);
+		printf("- PAK64 streamed asset exceptions: .ogg and .webm\n");
 	}
 }
 
@@ -235,6 +238,55 @@ void validate_pak32_budget(const char *file_path, pak_offset_t data_offset, pak_
 		printf("Use -f pak64 to create a PACK v1 PAK64 archive.\n");
 		exit(1);
 	}
+}
+
+static int archive_path_has_extension(const char *archive_path, const char *extension) {
+	size_t archive_path_length;
+	size_t extension_length;
+	size_t extension_index;
+	char archive_character;
+	char extension_character;
+
+	if(!archive_path || !extension) {
+		return 0;
+	}
+
+	archive_path_length = strlen(archive_path);
+	extension_length = strlen(extension);
+
+	if(archive_path_length < extension_length) {
+		return 0;
+	}
+
+	for(extension_index = 0; extension_index < extension_length; extension_index++) {
+		archive_character = archive_path[archive_path_length - extension_length + extension_index];
+		extension_character = extension[extension_index];
+
+		if(tolower((unsigned char)archive_character) != tolower((unsigned char)extension_character)) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+static int is_streamed_archive_asset(const char *archive_path) {
+	return archive_path_has_extension(archive_path, ".ogg") ||
+		archive_path_has_extension(archive_path, ".webm");
+}
+
+static int validate_asset_size(const char *archive_path, const char *source_file_path, pak_size_t source_file_size, pak_format_t format) {
+	if(format == PAK_FORMAT_PAK64 &&
+		source_file_size > PAK_NONSTREAMED_ASSET_LIMIT &&
+		!is_streamed_archive_asset(archive_path)) {
+		printf("\nError: PAK64 non-streamed asset is too large: %s\n", archive_path);
+		printf("Source file: %s\n", source_file_path ? source_file_path : "(unknown source)");
+		printf("Non-streamed asset limit is %.2f GB.\n", pak_nonstreamed_asset_limit_gb);
+		printf("Only .ogg and .webm files may exceed this limit because the engine streams them.\n");
+		return 0;
+	}
+
+	return 1;
 }
 
 
@@ -935,6 +987,11 @@ int pack_file(FILE *pak_file_object, const char *source_file_path, const char *a
 	data_offset = pak_tell(pak_file_object);
 	source_file_size = pak_file_size(source_file_object);
 
+	if(!validate_asset_size(archive_name, source_file_path, source_file_size, format)) {
+		fclose(source_file_object);
+		return -1;
+	}
+
 	if(format == PAK_FORMAT_PAK32) {
 		validate_pak32_budget(archive_name, data_offset, source_file_size, record_size);
 	}
@@ -1109,7 +1166,6 @@ int pack_directory(FILE *pak_file_object, const char *source_directory_path, con
 	char  child_source_path[SOURCE_PATH_MAX_LEN];
 	char  child_archive_path[ARCHIVE_PATH_MAX_LEN];
 
-	struct  stat    path_status;
 	struct  dirent  **namelist;
 	int             n,
 					i;
@@ -1117,12 +1173,12 @@ int pack_directory(FILE *pak_file_object, const char *source_directory_path, con
 
 	n = scandir(source_directory_path, &namelist, NULL, alphasort);
 	if(n < 0) {
-		
-		if(stat(source_directory_path, &path_status) < 0) {
-			printf("**** %s", source_directory_path);
-			std_err();
-		}
-
+		/*
+		* scandir() fails for normal files. Let pack_file() handle the path
+		* instead of calling stat() first. Some C runtimes report EOVERFLOW
+		* from stat() for files above 2GB even when the file can be opened and
+		* copied with the large-file APIs used by pack_file().
+		*/
 		if(pack_file(pak_file_object, source_directory_path, archive_directory_path, format) < 0) {
 			return(-1);
 		}
@@ -1160,18 +1216,14 @@ int pack_directory(FILE *pak_file_object, const char *source_directory_path, con
 				goto quit;
 			}
 
-			if(stat(child_source_path, &path_status) < 0) {
-				printf("**** %s", child_source_path);
-				std_err();
-			}
-			if(S_ISDIR(path_status.st_mode)) {
-				if(pack_directory(pak_file_object, child_source_path, child_archive_path, format) < 0) {
-					goto quit;
-				}
-			} else {
-				if(pack_file(pak_file_object, child_source_path, child_archive_path, format) < 0) {
-					goto quit;
-				}
+			/*
+			* Recurse into the child path and let scandir() decide whether it is a
+			* directory. If it is a file, the recursive call falls through to
+			* pack_file(). This avoids stat() size overflows on large streamed
+			* media files.
+			*/
+			if(pack_directory(pak_file_object, child_source_path, child_archive_path, format) < 0) {
+				goto quit;
 			}
 			free(namelist[i]);
 		}
