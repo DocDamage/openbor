@@ -9,6 +9,9 @@
 #ifndef SOUNDMIX_H
 #define SOUNDMIX_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "types.h"
 #include "List.h"
 
@@ -19,13 +22,22 @@
 **	Also plays WAV files (unsigned, mono, both 8-bit and 16-bit).
 */
 
-// 20:12 fixed-point conversion macros.
-// The maximum size of a sound is linked directly
-// to the range of the fixed-point variables!
-// Kratus (01-2024) Increased the length limit for samples, from 8 seconds to 1 minute
-#define		INT_TO_FIX(i)		((unsigned int)i<<4)
-#define		FIX_TO_INT(f)		((unsigned int)f>>4)
-//#define		MAX_SOUND_LEN		0x4ffffb
+/*
+* Music keeps the original fixed-point type because this project only
+* changes in-memory samples. Sample playback uses a separate 64-bit
+* fixed-point type so long samples do not wrap the play cursor.
+*/
+#define		INT_TO_FIX(integer_value)		((unsigned int)(integer_value)<<4)
+#define		FIX_TO_INT(fixed_value)		((unsigned int)(fixed_value)>>4)
+
+typedef uint64_t sound_sample_fixed_t;
+typedef uint64_t sound_sample_position_t;
+
+#define		SOUND_SAMPLE_FIXED_SHIFT		4U
+#define		SOUND_SAMPLE_FIXED_ONE			((sound_sample_fixed_t)1U << SOUND_SAMPLE_FIXED_SHIFT)
+#define		SOUND_SAMPLE_FIXED_MAX_INTEGER	(UINT64_MAX >> SOUND_SAMPLE_FIXED_SHIFT)
+#define		SOUND_SAMPLE_INT_TO_FIX(integer_value)	((sound_sample_fixed_t)(integer_value) << SOUND_SAMPLE_FIXED_SHIFT)
+#define		SOUND_SAMPLE_FIX_TO_INT(fixed_value)	((sound_sample_position_t)((fixed_value) >> SOUND_SAMPLE_FIXED_SHIFT))
 #define		CHANNEL_PLAYING		1
 #define		CHANNEL_LOOPING		2
 #define		MUSIC_NUM_BUFFERS	4
@@ -52,9 +64,12 @@ typedef enum e_sound_spatial_channel
 } e_channel_index;
 
 typedef struct s_sound_parameters {
-    unsigned int sound_length_max; // MAX_SOUND_LEN; Maximum sound length in samples
-    const unsigned int music_buffers_count; // MUSIC_NUM_BUFFERS
-    const unsigned int music_buffer_size;    // MUSIC_BUF_SIZE - In samples
+    /*
+    * Maximum sample data bytes. UINT64_MAX means no engine cap.
+    */
+    uint64_t sound_length_max;
+    const unsigned int music_buffers_count; /* MUSIC_NUM_BUFFERS */
+    const unsigned int music_buffer_size;   /* MUSIC_BUF_SIZE - In samples */
 } s_sound_parameters;
 
 typedef struct
@@ -66,17 +81,22 @@ typedef struct
     int				playid;
     int            volume[SOUND_SPATIAL_CHANNEL_MAX];	 // Stereo :)
     int            channels;
-    unsigned int   fp_samplepos; // Position (fixed-point)
-    unsigned int   fp_period;	 // Period (fixed-point)
+    
+    sound_sample_fixed_t fp_samplepos;  // Fixed point sample position.
+    sound_sample_fixed_t fp_period;     // Fixed point playback period (advance per output sample).
 } channelstruct;
 
 typedef struct
 {
     void* sampleptr;
-    int			   soundlen;	 // Length in samples
-    int            bits;		 // 8/16 bit
-    int            frequency;    // 11025 * 1,2,4
+    
+    uint64_t       soundbytes;  // Raw bytes loaded from the WAV data chunk.    
+    uint64_t       soundlen;    // Mixer-addressable sample units, not bytes.    
+    uint64_t       framecount;  // Complete PCM frames loaded from the WAV data chunk.
+    int            bits;
+    int            frequency;
     int            channels;
+    int            blockalign;  // Bytes in one complete PCM frame.
 } samplestruct;
 
 typedef struct
@@ -147,4 +167,4 @@ void sound_pause_music(int toggle);
 void update_sample(unsigned char *buf, int size);
 int maxchannels(void);
 
-#endif
+#endif // SOUNDMIX_H

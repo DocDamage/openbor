@@ -33,6 +33,8 @@
 **  will cause errors!!!
 */
 
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +52,7 @@ Caution: move vorbis headers here otherwise the structs will
 #include "adpcm.h"
 #include "sblaster.h"
 #include "borendian.h"
+#include "packfile.h"
 
 
 
@@ -80,7 +83,7 @@ Caution: move vorbis headers here otherwise the structs will
 s_sound_parameters sound_parameters = {
     .music_buffers_count = 4,
     .music_buffer_size = (16 * 1024),
-    .sound_length_max = 4294967295 // 0x4ffffb //2,147,483,392 // 3,039,297,536 // 625580,032
+    .sound_length_max = UINT64_MAX
 };
 
 s_audio_global audio_global =
@@ -130,152 +133,317 @@ void  sound_music_channel_clear(musicchannelstruct* const music_channel)
     music_channel->object_type = OBJECT_TYPE_MUSIC_CHANNEL;
 }
 
-static int loadwave(char *filename, char *packname, samplestruct *buf, unsigned int maxsize)
+typedef struct s_wave_riff_header
 {
-    struct
-    {
-        u32				riff;
-        u32				size;
-        u32				type;
-    } riffheader;
-    struct
-    {
-        u32				tag;
-        u32				size;
-    } rifftag;
-    struct
-    {
-        u16				format;		// 1 = PCM
-        u16				channels;	// Mono, stereo
-        u32				samplerate;	// 11025, 22050, 44100
-        u32				bps;		// Bytes/second
-        u16				unknown;
-        u16				samplebits;	// 8, 12, 16
-    } fmt;
+    u32 riff;
+    u32 size;
+    u32 type;
+} s_wave_riff_header;
 
-    int handle;
-    int mulbytes;
+typedef struct s_wave_chunk_header
+{
+    u32 tag;
+    u32 size;
+} s_wave_chunk_header;
 
-    if(buf == NULL)
-    {
-        return 0;
-    }
+typedef struct s_wave_format_header
+{
+    u16 format;       /* 1 = PCM */
+    u16 channels;     /* Mono, stereo */
+    u32 samplerate;   /* 11025, 22050, 44100 */
+    u32 bps;          /* Bytes/second */
+    u16 blockalign;   /* Bytes in one complete PCM frame. */
+    u16 samplebits;   /* 8, 12, 16 */
+} s_wave_format_header;
 
-    if((handle = openpackfile(filename, packname)) == -1)
-    {
-        return 0;
-    }
-    if(readpackfile(handle, &riffheader, sizeof(riffheader)) != sizeof(riffheader))
-    {
-        closepackfile(handle);
-        return 0;
-    }
+/*
+* readpackfile() intentionally uses int-sized requests. Keep the WAV loader
+* future-proof by reading large in-memory samples through repeated reads.
+*/
+static int sound_read_packfile_exact(int packfile_handle, void *destination_buffer, uint64_t bytes_to_read)
+{
+    unsigned char *write_position = (unsigned char *)destination_buffer;
 
-    riffheader.riff = SwapLSB32(riffheader.riff);
-    riffheader.size = SwapLSB32(riffheader.size);
-    riffheader.type = SwapLSB32(riffheader.type);
-
-    if(riffheader.riff != HEX_RIFF || riffheader.type != HEX_WAVE)
+    while(bytes_to_read > 0)
     {
-        closepackfile(handle);
-        return 0;
-    }
+        int requested_read_size;
+        int actual_read_size;
 
-    rifftag.tag = 0;
-    // Search for format tag
-    while(rifftag.tag != HEX_fmt)
-    {
-        if(readpackfile(handle, &rifftag, sizeof(rifftag)) != sizeof(rifftag))
+        requested_read_size = bytes_to_read > (uint64_t)INT_MAX ? INT_MAX : (int)bytes_to_read;
+        actual_read_size = readpackfile(packfile_handle, write_position, requested_read_size);
+
+        if(actual_read_size <= 0)
         {
-            closepackfile(handle);
             return 0;
         }
-        rifftag.tag = SwapLSB32(rifftag.tag);
-        rifftag.size = SwapLSB32(rifftag.size);
-        if(rifftag.tag != HEX_fmt)
-        {
-            seekpackfile(handle, rifftag.size, SEEK_CUR);
-        }
+
+        write_position += actual_read_size;
+        bytes_to_read -= (uint64_t)actual_read_size;
     }
-    if(readpackfile(handle, &fmt, sizeof(fmt)) != sizeof(fmt))
+
+    return 1;
+}
+
+/*
+* WAV chunks are word aligned. The size stored in the chunk header does not
+* include the optional pad byte, so callers need to include it when skipping.
+*/
+static int sound_wave_chunk_skip_size(uint64_t chunk_data_size, uint64_t *chunk_skip_size)
+{
+    if(chunk_data_size == UINT64_MAX)
     {
-        closepackfile(handle);
         return 0;
     }
 
-    fmt.format = SwapLSB16(fmt.format);
-    fmt.channels = SwapLSB16(fmt.channels);
-    fmt.unknown = SwapLSB16(fmt.unknown);
-    fmt.samplebits = SwapLSB16(fmt.samplebits);
-    fmt.samplerate = SwapLSB32(fmt.samplerate);
-    fmt.bps = SwapLSB32(fmt.bps);
+    *chunk_skip_size = chunk_data_size + (chunk_data_size & 1U);
+    return 1;
+}
 
-    if(rifftag.size > sizeof(fmt))
-    {
-        seekpackfile(handle, rifftag.size - sizeof(fmt), SEEK_CUR);
-    }
+/*
+* The pack layer exposes 64-bit seeks, but the offset is signed. Keep the
+* conversion guarded so malformed or future oversized chunks fail cleanly.
+*/
+static int sound_seek_packfile_forward(int packfile_handle, uint64_t bytes_to_skip)
+{
+    uint64_t chunk_skip_size;
 
-    if(fmt.format != FMT_PCM || (fmt.channels != 1 && fmt.channels != 2) || (fmt.samplebits != 8 && fmt.samplebits != 16))
+    if(!sound_wave_chunk_skip_size(bytes_to_skip, &chunk_skip_size))
     {
-        closepackfile(handle);
         return 0;
     }
-    mulbytes = (fmt.samplebits == 16 ? 2 : 1);
-
-
-    // Search for data tag
-    while(rifftag.tag != HEX_data)
+    if(chunk_skip_size > (uint64_t)INT64_MAX)
     {
-        if(readpackfile(handle, &rifftag, sizeof(rifftag)) != sizeof(rifftag))
+        return 0;
+    }
+
+    return seekpackfile64(packfile_handle, (packfile_signed_offset_t)chunk_skip_size, SEEK_CUR) >= 0;
+}
+
+static int sound_read_wave_chunk_header(int packfile_handle, s_wave_chunk_header *wave_chunk_header)
+{
+    if(readpackfile(packfile_handle, wave_chunk_header, sizeof(*wave_chunk_header)) != sizeof(*wave_chunk_header))
+    {
+        return 0;
+    }
+
+    wave_chunk_header->tag = SwapLSB32(wave_chunk_header->tag);
+    wave_chunk_header->size = SwapLSB32(wave_chunk_header->size);
+
+    return 1;
+}
+
+/*
+* Load classic RIFF/WAVE PCM data into memory. All file and chunk sizes are
+* processed as 64-bit values so RF64/BW64 can be added later without changing
+* the sample or mixer data model.
+*/
+static int loadwave(char *filename, char *packname, samplestruct *sample, uint64_t maximum_data_bytes)
+{
+    s_wave_riff_header wave_riff_header;
+    s_wave_chunk_header wave_chunk_header;
+    s_wave_format_header wave_format_header;
+    uint64_t data_chunk_size = 0;
+    uint64_t sample_data_bytes = 0;
+    uint64_t sample_unit_count = 0;
+    uint64_t bytes_per_sample_unit = 0;
+    uint64_t complete_frame_count = 0;
+    size_t allocation_size = 0;
+    int packfile_handle;
+    int format_chunk_found = 0;
+
+    if(sample == NULL)
+    {
+        return 0;
+    }
+
+    memset(sample, 0, sizeof(*sample));
+
+    packfile_handle = openpackfile(filename, packname);
+    if(packfile_handle == -1)
+    {
+        return 0;
+    }
+
+    if(readpackfile(packfile_handle, &wave_riff_header, sizeof(wave_riff_header)) != sizeof(wave_riff_header))
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
+
+    wave_riff_header.riff = SwapLSB32(wave_riff_header.riff);
+    wave_riff_header.size = SwapLSB32(wave_riff_header.size);
+    wave_riff_header.type = SwapLSB32(wave_riff_header.type);
+
+    if(wave_riff_header.riff != HEX_RIFF || wave_riff_header.type != HEX_WAVE)
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
+
+    /*
+    * Find and read the PCM format chunk before loading sample data. Unknown
+    * chunks are skipped with 64-bit seek support and RIFF pad-byte handling.
+    */
+    while(!format_chunk_found)
+    {
+        uint64_t format_chunk_size;
+        uint64_t remaining_format_bytes;
+
+        if(!sound_read_wave_chunk_header(packfile_handle, &wave_chunk_header))
         {
-            closepackfile(handle);
+            closepackfile(packfile_handle);
             return 0;
         }
-        rifftag.tag = SwapLSB32(rifftag.tag);
-        rifftag.size = SwapLSB32(rifftag.size);
-        if(rifftag.tag != HEX_data)
+
+        if(wave_chunk_header.tag != HEX_fmt)
         {
-            seekpackfile(handle, rifftag.size, SEEK_CUR);
+            if(!sound_seek_packfile_forward(packfile_handle, wave_chunk_header.size))
+            {
+                closepackfile(packfile_handle);
+                return 0;
+            }
+            continue;
+        }
+
+        format_chunk_size = wave_chunk_header.size;
+        if(format_chunk_size < sizeof(wave_format_header))
+        {
+            closepackfile(packfile_handle);
+            return 0;
+        }
+
+        if(readpackfile(packfile_handle, &wave_format_header, sizeof(wave_format_header)) != sizeof(wave_format_header))
+        {
+            closepackfile(packfile_handle);
+            return 0;
+        }
+
+        wave_format_header.format = SwapLSB16(wave_format_header.format);
+        wave_format_header.channels = SwapLSB16(wave_format_header.channels);
+        wave_format_header.blockalign = SwapLSB16(wave_format_header.blockalign);
+        wave_format_header.samplebits = SwapLSB16(wave_format_header.samplebits);
+        wave_format_header.samplerate = SwapLSB32(wave_format_header.samplerate);
+        wave_format_header.bps = SwapLSB32(wave_format_header.bps);
+
+        remaining_format_bytes = format_chunk_size - sizeof(wave_format_header);
+        if(remaining_format_bytes > 0 && !sound_seek_packfile_forward(packfile_handle, remaining_format_bytes))
+        {
+            closepackfile(packfile_handle);
+            return 0;
+        }
+
+        format_chunk_found = 1;
+    }
+
+    if(wave_format_header.format != FMT_PCM ||
+       (wave_format_header.channels != 1 && wave_format_header.channels != 2) ||
+       (wave_format_header.samplebits != 8 && wave_format_header.samplebits != 16))
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
+
+    bytes_per_sample_unit = (uint64_t)(wave_format_header.samplebits / 8U);
+    if(bytes_per_sample_unit == 0 || wave_format_header.blockalign == 0)
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
+
+    /*
+    * The mixer indexes 8-bit data by byte and 16-bit data by 16-bit element.
+    * Keep soundlen in those existing mixer units to avoid changing playback.
+    */
+    if(wave_format_header.blockalign != wave_format_header.channels * bytes_per_sample_unit)
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
+
+    /*
+    * Find the sample data chunk after the format has been validated.
+    */
+    for(;;)
+    {
+        if(!sound_read_wave_chunk_header(packfile_handle, &wave_chunk_header))
+        {
+            closepackfile(packfile_handle);
+            return 0;
+        }
+
+        if(wave_chunk_header.tag == HEX_data)
+        {
+            data_chunk_size = wave_chunk_header.size;
+            break;
+        }
+
+        if(!sound_seek_packfile_forward(packfile_handle, wave_chunk_header.size))
+        {
+            closepackfile(packfile_handle);
+            return 0;
         }
     }
 
-    if(rifftag.size < maxsize)
+    sample_data_bytes = data_chunk_size;
+    if(sample_data_bytes > maximum_data_bytes)
     {
-        maxsize = rifftag.size;
-    }
-    if((buf->sampleptr = malloc(maxsize + 8)) == NULL)
-    {
-        closepackfile(handle);
-        return 0;
-    }
-    if(fmt.samplebits == 8)
-    {
-        memset(buf->sampleptr, 0x80, maxsize + 8);
-    }
-    else
-    {
-        memset(buf->sampleptr, 0x80, maxsize + 8);
+        sample_data_bytes = maximum_data_bytes;
     }
 
-    if( readpackfile(handle, buf->sampleptr, maxsize) != (int)maxsize)
+    /*
+    * Only complete PCM frames are exposed to the mixer. This prevents partial
+    * trailing bytes from being addressable if a malformed file or cap appears.
+    */
+    sample_data_bytes -= sample_data_bytes % wave_format_header.blockalign;
+    if(sample_data_bytes == 0)
     {
-        if(buf->sampleptr != NULL)
-        {
-            free(buf->sampleptr);
-            buf->sampleptr = NULL;
-        }
-        closepackfile(handle);
+        closepackfile(packfile_handle);
         return 0;
     }
 
-    closepackfile(handle);
+    sample_unit_count = sample_data_bytes / bytes_per_sample_unit;
+    complete_frame_count = sample_data_bytes / wave_format_header.blockalign;
+    if(sample_unit_count > SOUND_SAMPLE_FIXED_MAX_INTEGER)
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
 
-    buf->soundlen = maxsize / mulbytes;
-    buf->bits = fmt.samplebits;
-    buf->frequency = fmt.samplerate;
-    buf->channels = fmt.channels;
+    if(sample_data_bytes > (uint64_t)(SIZE_MAX - 8U))
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
 
-    return maxsize;
+    allocation_size = (size_t)sample_data_bytes + 8U;
+    sample->sampleptr = malloc(allocation_size);
+    if(sample->sampleptr == NULL)
+    {
+        closepackfile(packfile_handle);
+        return 0;
+    }
+
+    memset(sample->sampleptr, wave_format_header.samplebits == 8 ? 0x80 : 0x00, allocation_size);
+
+    if(!sound_read_packfile_exact(packfile_handle, sample->sampleptr, sample_data_bytes))
+    {
+        free(sample->sampleptr);
+        sample->sampleptr = NULL;
+        closepackfile(packfile_handle);
+        return 0;
+    }
+
+    closepackfile(packfile_handle);
+
+    sample->soundbytes = sample_data_bytes;
+    sample->soundlen = sample_unit_count;
+    sample->framecount = complete_frame_count;
+    sample->bits = wave_format_header.samplebits;
+    sample->frequency = wave_format_header.samplerate;
+    sample->channels = wave_format_header.channels;
+    sample->blockalign = wave_format_header.blockalign;
+
+    return 1;
 }
 
 int sound_reload_sample(int index)
@@ -407,161 +575,186 @@ static void clearmixbuffer(unsigned int *buf, int n)
 // Mixers: mix (16-bit) in the mixbuffer, then write to DMA memory (see above).
 // The mixing code handles fixed-point conversion and looping.
 
+
+/*
+* Advance a sample cursor without allowing 64-bit addition to wrap. The caller
+* uses sample_end_reached to decide whether one-shot playback should stop.
+*/
+static sound_sample_fixed_t sound_sample_position_advance(sound_sample_fixed_t sample_position_fixed, sound_sample_fixed_t sample_period_fixed, sound_sample_fixed_t sample_length_fixed, int *sample_end_reached)
+{
+    sound_sample_fixed_t advanced_sample_position;
+
+    if(sample_period_fixed > UINT64_MAX - sample_position_fixed)
+    {
+        *sample_end_reached = 1;
+        return ((sample_position_fixed % sample_length_fixed) + (sample_period_fixed % sample_length_fixed)) % sample_length_fixed;
+    }
+
+    advanced_sample_position = sample_position_fixed + sample_period_fixed;
+    if(advanced_sample_position >= sample_length_fixed)
+    {
+        *sample_end_reached = 1;
+        return advanced_sample_position % sample_length_fixed;
+    }
+
+    *sample_end_reached = 0;
+    return advanced_sample_position;
+}
+
+
 // Input: number of input samples to mix
 static void mixaudio(unsigned int todo)
 {
+    int output_position;
+    int channel_index;
+    int left_volume;
+    int right_volume;
+    int left_sample_value;
+    int right_sample_value;
 
-    static int i, chan, lvolume, rvolume, lmusic, rmusic;
-    static unsigned int fp_pos, fp_period, fp_len, fp_playto;
-    static int snum;
-    static unsigned char *sptr8;
-    static short *sptr16;
-
-    // First mix the music, if playing
+    /*
+    * Music keeps the existing 32-bit fixed-point cursor because this project
+    * is limited to sample loading and sample playback.
+    */
     if(musicchannel.active && !musicchannel.paused)
     {
+        unsigned int music_position_fixed;
+        unsigned int music_period_fixed;
+        unsigned int music_playto_fixed;
+        short *music_sample_data;
 
-        sptr16 = musicchannel.buf[musicchannel.playing_buffer];
-        fp_playto = musicchannel.fp_playto[musicchannel.playing_buffer];
-        fp_pos = musicchannel.fp_samplepos;
-        fp_period = musicchannel.fp_period;
-        lvolume = musicchannel.volume[SOUND_SPATIAL_CHANNEL_LEFT];
-        rvolume = musicchannel.volume[SOUND_SPATIAL_CHANNEL_RIGHT];
+        music_sample_data = musicchannel.buf[musicchannel.playing_buffer];
+        music_playto_fixed = musicchannel.fp_playto[musicchannel.playing_buffer];
+        music_position_fixed = musicchannel.fp_samplepos;
+        music_period_fixed = musicchannel.fp_period;
+        left_volume = musicchannel.volume[SOUND_SPATIAL_CHANNEL_LEFT];
+        right_volume = musicchannel.volume[SOUND_SPATIAL_CHANNEL_RIGHT];
 
-        // Mix it
-        for(i = 0; i < (int)todo;)
+        for(output_position = 0; output_position < (int)todo;)
         {
-
-            // Reached end of playable area,
-            // switch buffers or stop
-            if(fp_pos >= fp_playto)
+            if(music_position_fixed >= music_playto_fixed)
             {
-                // Done playing this one
                 musicchannel.fp_playto[musicchannel.playing_buffer] = 0;
-                // Advance to next buffer
                 musicchannel.playing_buffer++;
                 musicchannel.playing_buffer %= MUSIC_NUM_BUFFERS;
-                // Correct position in next buffer
-                fp_pos = fp_pos - fp_playto;
-                // Anything to play?
-                if(fp_pos < musicchannel.fp_playto[musicchannel.playing_buffer])
+                music_position_fixed = music_position_fixed - music_playto_fixed;
+
+                if(music_position_fixed < musicchannel.fp_playto[musicchannel.playing_buffer])
                 {
-                    // Yeah, switch!
-                    sptr16 = musicchannel.buf[musicchannel.playing_buffer];
-                    fp_playto = musicchannel.fp_playto[musicchannel.playing_buffer];
+                    music_sample_data = musicchannel.buf[musicchannel.playing_buffer];
+                    music_playto_fixed = musicchannel.fp_playto[musicchannel.playing_buffer];
                 }
                 else
                 {
-                    // Nothing more to do
-                    // Also disable this buffer, just incase
                     musicchannel.fp_playto[musicchannel.playing_buffer] = 0;
-                    fp_pos = 0;
+                    music_position_fixed = 0;
                     musicchannel.active = 0;
-                    // End for
                     break;
                 }
             }
 
-            // Mix a sample
-            lmusic = rmusic = sptr16[FIX_TO_INT(fp_pos)];
-            lmusic = (lmusic * lvolume / MAX_MUSIC_VOLUME);
-            rmusic = (rmusic * rvolume / MAX_MUSIC_VOLUME);
-            mixbuf[i++] += lmusic;
+            left_sample_value = right_sample_value = music_sample_data[FIX_TO_INT(music_position_fixed)];
+            left_sample_value = (left_sample_value * left_volume / MAX_MUSIC_VOLUME);
+            right_sample_value = (right_sample_value * right_volume / MAX_MUSIC_VOLUME);
+            mixbuf[output_position++] += left_sample_value;
             if(musicchannel.channels == CHANNEL_TYPE_MONO)
             {
-                mixbuf[i++] += rmusic;
+                mixbuf[output_position++] += right_sample_value;
             }
-            fp_pos += fp_period;
+            music_position_fixed += music_period_fixed;
         }
-        musicchannel.fp_samplepos = fp_pos;
+        musicchannel.fp_samplepos = music_position_fixed;
     }
 
-
-    for(chan = 0; chan < max_channels; chan++)
+    for(channel_index = 0; channel_index < max_channels; channel_index++)
     {
-        if(vchannel[chan].active && !vchannel[chan].paused)
+        if(vchannel[channel_index].active && !vchannel[channel_index].paused)
         {
-            unsigned modlen;
-            snum = vchannel[chan].samplenum;
-            if(!soundcache[snum].sample.sampleptr)
+            uint64_t sample_length_units;
+            sound_sample_fixed_t sample_length_fixed;
+            sound_sample_fixed_t sample_position_fixed;
+            sound_sample_fixed_t sample_period_fixed;
+            int sample_index;
+
+            sample_index = vchannel[channel_index].samplenum;
+            if(!soundcache[sample_index].sample.sampleptr)
             {
-                vchannel[chan].active = 0;
+                vchannel[channel_index].active = 0;
                 continue;
             }
-            modlen = soundcache[snum].sample.soundlen;
 
-            //printf("\n modlen: %u", modlen);
-
-            fp_len = INT_TO_FIX(modlen);
-
-            //printf("\n fp_len: %u", fp_len);
-
-            fp_pos = vchannel[chan].fp_samplepos;
-            fp_period = vchannel[chan].fp_period;
-            lvolume = vchannel[chan].volume[SOUND_SPATIAL_CHANNEL_LEFT];
-            rvolume = vchannel[chan].volume[SOUND_SPATIAL_CHANNEL_RIGHT];
-            if(fp_len < 1)
+            sample_length_units = soundcache[sample_index].sample.soundlen;
+            if(sample_length_units < 1 || sample_length_units > SOUND_SAMPLE_FIXED_MAX_INTEGER)
             {
-                fp_len = 1;
+                vchannel[channel_index].active = 0;
+                continue;
             }
-            if(modlen < 1)
+
+            sample_length_fixed = SOUND_SAMPLE_INT_TO_FIX(sample_length_units);
+            sample_position_fixed = vchannel[channel_index].fp_samplepos;
+            sample_period_fixed = vchannel[channel_index].fp_period;
+            left_volume = vchannel[channel_index].volume[SOUND_SPATIAL_CHANNEL_LEFT];
+            right_volume = vchannel[channel_index].volume[SOUND_SPATIAL_CHANNEL_RIGHT];
+
+            if(soundcache[sample_index].sample.bits == 8)
             {
-                modlen = 1;
-            }
-            if(soundcache[snum].sample.bits == 8)
-            {
-                sptr8 = soundcache[snum].sample.sampleptr;
-                for(i = 0; i < (int)todo;)
+                unsigned char *sample_data_8bit = soundcache[sample_index].sample.sampleptr;
+
+                for(output_position = 0; output_position < (int)todo;)
                 {
-                    lmusic = rmusic = sptr8[FIX_TO_INT(fp_pos)];
-                    mixbuf[i++] += ((lmusic << 8) * lvolume / MAX_SAMPLE_VOLUME) - 0x8000;
-                    if(vchannel[chan].channels == CHANNEL_TYPE_MONO)
-                    {
-                        mixbuf[i++] += ((rmusic << 8) * rvolume / MAX_SAMPLE_VOLUME) - 0x8000;
-                    }
-                    fp_pos += fp_period;
+                    size_t sample_position_index;
 
-                    // Reached end of sample, stop or loop
-                    if(fp_pos >= fp_len)
+                    sample_position_index = (size_t)SOUND_SAMPLE_FIX_TO_INT(sample_position_fixed);
+                    left_sample_value = right_sample_value = sample_data_8bit[sample_position_index];
+                    mixbuf[output_position++] += ((left_sample_value << 8) * left_volume / MAX_SAMPLE_VOLUME) - 0x8000;
+                    if(vchannel[channel_index].channels == CHANNEL_TYPE_MONO)
                     {
-                        fp_pos %= fp_len; // = INT_TO_FIX(0);
-                        if(vchannel[chan].active != CHANNEL_LOOPING)
+                        mixbuf[output_position++] += ((right_sample_value << 8) * right_volume / MAX_SAMPLE_VOLUME) - 0x8000;
+                    }
+                    {
+                        int sample_end_reached;
+
+                        sample_position_fixed = sound_sample_position_advance(sample_position_fixed, sample_period_fixed, sample_length_fixed, &sample_end_reached);
+                        if(sample_end_reached && vchannel[channel_index].active != CHANNEL_LOOPING)
                         {
-                            vchannel[chan].active = 0;
+                            vchannel[channel_index].active = 0;
                             break;
                         }
                     }
                 }
             }
-            else if(soundcache[snum].sample.bits == 16)
+            else if(soundcache[sample_index].sample.bits == 16)
             {
-                sptr16 = soundcache[snum].sample.sampleptr;
-                for(i = 0; i < (int)todo;)
-                {
-                    lmusic = rmusic = (int)(short)SwapLSB16(sptr16[FIX_TO_INT(fp_pos)]);
-                    mixbuf[i++] += (lmusic * lvolume / MAX_SAMPLE_VOLUME);
-                    if(vchannel[chan].channels == CHANNEL_TYPE_MONO)
-                    {
-                        mixbuf[i++] += (rmusic * rvolume / MAX_SAMPLE_VOLUME);
-                    }
-                    fp_pos += fp_period;
+                short *sample_data_16bit = soundcache[sample_index].sample.sampleptr;
 
-                    // Reached end of sample, stop or loop
-                    if(fp_pos >= fp_len)
+                for(output_position = 0; output_position < (int)todo;)
+                {
+                    size_t sample_position_index;
+
+                    sample_position_index = (size_t)SOUND_SAMPLE_FIX_TO_INT(sample_position_fixed);
+                    left_sample_value = right_sample_value = (int)(short)SwapLSB16(sample_data_16bit[sample_position_index]);
+                    mixbuf[output_position++] += (left_sample_value * left_volume / MAX_SAMPLE_VOLUME);
+                    if(vchannel[channel_index].channels == CHANNEL_TYPE_MONO)
                     {
-                        fp_pos %= fp_len; // = INT_TO_FIX(0);
-                        if(vchannel[chan].active != CHANNEL_LOOPING)
+                        mixbuf[output_position++] += (right_sample_value * right_volume / MAX_SAMPLE_VOLUME);
+                    }
+                    {
+                        int sample_end_reached;
+
+                        sample_position_fixed = sound_sample_position_advance(sample_position_fixed, sample_period_fixed, sample_length_fixed, &sample_end_reached);
+                        if(sample_end_reached && vchannel[channel_index].active != CHANNEL_LOOPING)
                         {
-                            vchannel[chan].active = 0;
+                            vchannel[channel_index].active = 0;
                             break;
                         }
                     }
                 }
             }
-            vchannel[chan].fp_samplepos = fp_pos;
+            vchannel[channel_index].fp_samplepos = sample_position_fixed;
         }
     }
 }
+
 
 //////////////////////////////// ISR ///////////////////////////////////
 // Called by Soundblaster ISR
@@ -617,6 +810,36 @@ void update_sample(unsigned char *buf, int size)
 
 ////////////////////////// Sound effects control /////////////////////////////
 // Functions to start, stop, loop, etc.
+
+/*
+* Calculate sample playback period with the same formula as the old mixer,
+* but keep the math in 64-bit fixed-point for long sample support.
+*/
+static sound_sample_fixed_t sound_sample_period_calculate(unsigned int speed, int sample_frequency)
+{
+    uint64_t sample_period;
+
+    if(sample_frequency <= 0 || playfrequency <= 0)
+    {
+        return SOUND_SAMPLE_FIXED_ONE;
+    }
+
+    sample_period = SOUND_SAMPLE_FIXED_ONE;
+    sample_period = sample_period * (uint64_t)speed / 100U;
+
+    if(sample_period > UINT64_MAX / (uint64_t)sample_frequency)
+    {
+        return UINT64_MAX;
+    }
+
+    sample_period = sample_period * (uint64_t)sample_frequency / (uint64_t)playfrequency;
+    if(sample_period == 0)
+    {
+        sample_period = 1;
+    }
+
+    return (sound_sample_fixed_t)sample_period;
+}
 
 // Speed in percents of normal.
 // Returns channel the sample is played on or -1 if not playing.
@@ -689,10 +912,18 @@ int sound_play_sample(int samplenum, unsigned int priority, int lvolume, int rvo
         rvolume = MAX_SAMPLE_VOLUME;
     }
 
+    if(soundcache[samplenum].sample.soundlen < 1 || soundcache[samplenum].sample.soundlen > SOUND_SAMPLE_FIXED_MAX_INTEGER)
+    {
+        return -1;
+    }
+
     vchannel[channel].samplenum = samplenum;
-    // Prevent samples from being played at EXACT same point
-    vchannel[channel].fp_samplepos = INT_TO_FIX((channel * 4) % soundcache[samplenum].sample.soundlen);
-    vchannel[channel].fp_period = (INT_TO_FIX(1) * speed / 100) * soundcache[samplenum].sample.frequency / playfrequency;
+    /*
+    * Prevent samples from being played at the exact same point while keeping
+    * the widened sample cursor inside the addressable sample length.
+    */
+    vchannel[channel].fp_samplepos = SOUND_SAMPLE_INT_TO_FIX(((uint64_t)channel * 4U) % soundcache[samplenum].sample.soundlen);
+    vchannel[channel].fp_period = sound_sample_period_calculate(speed, soundcache[samplenum].sample.frequency);
     vchannel[channel].volume[SOUND_SPATIAL_CHANNEL_LEFT] = lvolume;
     vchannel[channel].volume[SOUND_SPATIAL_CHANNEL_RIGHT] = rvolume;
     vchannel[channel].priority = priority;
@@ -803,7 +1034,10 @@ int sound_getpos_sample(int channel)
     {
         return 0;
     }
-    return FIX_TO_INT(vchannel[channel].fp_samplepos);
+    {
+        uint64_t sample_position = SOUND_SAMPLE_FIX_TO_INT(vchannel[channel].fp_samplepos);
+        return sample_position > (uint64_t)INT_MAX ? INT_MAX : (int)sample_position;
+    }
 }
 
 //////////////////////////////// ADPCM music ////////////////////////////////
