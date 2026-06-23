@@ -31662,7 +31662,7 @@ e_animations do_grab_attack_finish(entity *ent, int which)
     }
 
     // Could not find a valid finisher. Return none.
-    return ATK_NONE;
+    return ANI_NONE;
 }
 
 void common_grab_check()
@@ -49066,8 +49066,6 @@ void safe_set(int *arr, int index, int newkey, int oldkey)
 
 void keyboard_setup(int player)
 {
-    const int btnnum = MAX_BTN_NUM;
-
     int quit = 0; 
     int sdid = 0;
     int selector = 0;
@@ -49086,13 +49084,13 @@ void keyboard_setup(int player)
     char* command;
     char* filename = "translation/menu.txt";
     
-    char  buttonnames[btnnum][32];
+    char  buttonnames[MAX_BTN_NUM][32];
     
     size_t size;
     ArgList arglist;
     
     char argbuf[MAX_ARG_LEN + 1] = "";
-    int OPTIONS_NUM = btnnum + 3;
+    int OPTIONS_NUM = MAX_BTN_NUM + 3;
 
     screen_status |= IN_SCREEN_BUTTON_CONFIG_MENU;
 
@@ -49186,13 +49184,13 @@ proceed:
 
 finish:
 
-    while(disabledkey[selector]) if(++selector > btnnum - 1) break;
+    while(disabledkey[selector]) if(++selector > MAX_BTN_NUM - 1) break;
 
     while(!quit)
     {
         voffset = -6;
         _menutextm(2, -8, 0, Tr("Player %i"), player + 1);
-        for(i = 0; i < btnnum; i++)
+        for(i = 0; i < MAX_BTN_NUM; i++)
         {
             if(!disabledkey[i])
             {
@@ -49253,14 +49251,14 @@ finish:
                         break;
                     }
                 }
-                while(selector < btnnum && disabledkey[selector]);
+                while(selector < MAX_BTN_NUM && disabledkey[selector]);
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
             }
             if(bothnewkeys & FLAG_MOVEDOWN)
             {
                 do
                 {
-                    if(++selector > btnnum - 1) break;
+                    if(++selector > MAX_BTN_NUM - 1) break;
                 }
                 while(disabledkey[selector]);
                 sound_play_sample(global_sample_list.beep, 0, savedata.effectvol, savedata.effectvol, 100);
@@ -49272,7 +49270,7 @@ finish:
             if(selector > OPTIONS_NUM)
             {
                 selector = 0;
-                while(disabledkey[selector]) if(++selector > btnnum - 1) break;
+                while(disabledkey[selector]) if(++selector > MAX_BTN_NUM - 1) break;
             }
 
             if(bothnewkeys & (FLAG_MOVELEFT | FLAG_MOVERIGHT | FLAG_ANYBUTTON))
