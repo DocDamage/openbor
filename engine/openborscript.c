@@ -9176,8 +9176,6 @@ int getsyspropertybyindex(ScriptVariant *var, int index)
                 porting = PORTING_OPENDINGUX;
         #elif PSP
                 porting = PORTING_PSP;
-        #elif WII
-                porting = PORTING_WII;
         #elif WIN
                 porting = PORTING_WINDOWS;
         #elif WIZ
