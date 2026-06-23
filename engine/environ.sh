@@ -306,60 +306,6 @@ case $1 in
 
 ############################################################################
 #                                                                          #
-#                             Wii Environment                              #
-#                                                                          #
-############################################################################
-7)
-   if test -e "/opt/devkitpro"; then
-     export DEVKITPRO=/opt/devkitpro
-     export DEVKITPPC=$DEVKITPRO/devkitPPC
-     export PATH=$PATH:$DEVKITPPC/bin
-   elif test -e "c:/devkitpro"; then
-     export DEVKITPRO=c:/devkitpro
-     export DEVKITPPC=$DEVKITPRO/devkitPPC
-     export PATH=$PATH:$DEVKITPPC/bin
-   elif [ `echo $HOST_PLATFORM | grep -E "windows|CYGWIN"` ]; then
-   
-     if [ ! -f "../tools/devkitpro/devkitpro.7z" ]; then
-        echo "-------------------------------------------------------"
-        echo "         WII SDK File - Not Found, Downloading SDK!"
-        echo "-------------------------------------------------------"
-        wget https://github.com/DCurrent/openbor/raw/ecce29b95700468aa3401915625dac2d56e4ca60/tools/devkitpro/devkitPro.7z -O ../tools/devkitpro/devkitpro.7z
-        echo
-        echo "-------------------------------------------------------"
-        echo "         WII SDK File - Download Has Completed!"
-        echo "-------------------------------------------------------"
-     fi
-   
-     if [ ! -d "../tools/devkitpro/devkitPPC" ]; then
-        echo "-------------------------------------------------------"
-        echo "         WII SDK - Not Found, Installing SDK!"
-        echo "-------------------------------------------------------"
-        ../tools/7-Zip/7za.exe x -y ../tools/devkitpro/devkitpro.7z -o../tools/devkitpro/
-        echo
-        echo "-------------------------------------------------------"
-        echo "         WII SDK - Installation Has Completed!"
-        echo "-------------------------------------------------------"
-     fi
-     HOST_PLATFORM="SVN";
-     export DEVKITPRO=../tools/devkitpro
-     export DEVKITPPC=$DEVKITPRO/devkitPPC
-     export PATH=$TOOLS:$DEVKITPPC/bin
-   fi
-   if test $DEVKITPPC; then
-     echo "-------------------------------------------------------"
-     echo "         WII SDK ($HOST_PLATFORM) Environment Loaded!"
-     echo "-------------------------------------------------------"
-   else
-     echo "-------------------------------------------------------"
-     echo "            ERROR - WII Environment Failed"
-     echo "                    SDK Installed?"
-     echo "-------------------------------------------------------"
-   fi
-   ;;
-
-############################################################################
-#                                                                          #
 #                          OpenDingux Environment                          #
 #                                                                          #
 ############################################################################
@@ -467,7 +413,6 @@ case $1 in
    echo "   4 = Linux"
    echo "   5 = Windows"
    echo "   6 = Dreamcast"
-   echo "   7 = Nintendo Wii"
    echo "   8 = OpenDingux"
    echo "   9 = Wiz"
    echo "  10 = Darwin"
