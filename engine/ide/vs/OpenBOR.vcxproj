@@ -207,13 +207,6 @@
     <ClCompile Include="..\..\vita\timer.c" />
     <ClCompile Include="..\..\vita\video.c" />
     <ClCompile Include="..\..\vita\vitaport.c" />
-    <ClCompile Include="..\..\wii\control.c" />
-    <ClCompile Include="..\..\wii\menu.c" />
-    <ClCompile Include="..\..\wii\sblaster.c" />
-    <ClCompile Include="..\..\wii\threads.c" />
-    <ClCompile Include="..\..\wii\timer.c" />
-    <ClCompile Include="..\..\wii\video.c" />
-    <ClCompile Include="..\..\wii\wiiport.c" />
     <ClCompile Include="..\..\xbox\common\src\xbapp.cpp" />
     <ClCompile Include="..\..\xbox\common\src\xbfont.cpp" />
     <ClCompile Include="..\..\xbox\common\src\xbhelp.cpp" />
@@ -492,12 +485,6 @@
     <ClInclude Include="..\..\vita\sblaster.h" />
     <ClInclude Include="..\..\vita\video.h" />
     <ClInclude Include="..\..\vita\vitaport.h" />
-    <ClInclude Include="..\..\wii\control.h" />
-    <ClInclude Include="..\..\wii\hankaku.h" />
-    <ClInclude Include="..\..\wii\menu.h" />
-    <ClInclude Include="..\..\wii\sblaster.h" />
-    <ClInclude Include="..\..\wii\video.h" />
-    <ClInclude Include="..\..\wii\wiiport.h" />
     <ClInclude Include="..\..\xbox\common\include\png.h" />
     <ClInclude Include="..\..\xbox\common\include\pngconf.h" />
     <ClInclude Include="..\..\xbox\common\include\xbapp.h" />
