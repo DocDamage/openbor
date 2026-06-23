@@ -16,8 +16,6 @@ tools/bin/.wget-hsts
 tools/win-sdk/*
 !tools/win-sdk/win-sdk.7z
 tools/psp-sdk/*
-tools/devkitpro/*
-!tools/devkitpro/devkitPro.7z
 /openbor_vs
 engine/ios/Build
 **/.DS_Store
