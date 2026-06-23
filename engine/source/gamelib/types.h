@@ -46,9 +46,7 @@ extern int pixelbytes[(int)5];
 
 // Define fixed-size integer types - these used to be in gfxtypes.h
 // TODO: use these for throughout the engine where fixed-length types are needed
-#if WII
-#include "gctypes.h"
-#elif ((__STDC_VERSION__ >= 199901L) || (defined(__GNUC__) && (__GNUC__ >= 3))) && (!defined(DC))
+#if ((__STDC_VERSION__ >= 199901L) || (defined(__GNUC__) && (__GNUC__ >= 3))) && (!defined(DC))
 #include <stdint.h>
 typedef int8_t s8;
 typedef uint8_t u8;
