@@ -308,23 +308,6 @@ SOURCE	        = source/stringptr.o                                             
                   source/omath.o
 
 
-
-ifdef BUILD_PSP
-GAME_CONSOLE    = psp/control/control.o                                                             \
-                  psp/dvemgr/dvemgr.o                                                               \
-                  psp/kernel/kernel.o                                                               \
-                  psp/graphics.o                                                                    \
-                  psp/audiodrv.o                                                                    \
-                  psp/sblaster.o                                                                    \
-                  psp/control.o                                                                     \
-                  psp/vertex.o                                                                      \
-                  psp/timer.o                                                                       \
-                  psp/video.o                                                                       \
-                  psp/image.o                                                                       \
-                  psp/menu.o                                                                        \
-                  psp/pspport.o
-endif
-
 ifdef BUILD_VITA
 GAME_CONSOLE    = vita/control.o                                                                     \
                   vita/sblaster.o                                                                    \
@@ -418,12 +401,6 @@ CFLAGS         += -DNO_RAM_DEBUGGER
 endif
 endif
 
-
-ifdef BUILD_PSP
-CFLAGS         += -G0
-endif
-
-
 ifdef BUILD_SDL
 CFLAGS 	       += -DSDL=1
 endif
@@ -491,12 +468,6 @@ ASFLAGS         = $(CFLAGS)
 #----------------------------------------------------------------------------------------------------
 
 LIBS            = $(addprefix -L", $(addsuffix ", $(LIBRARIES)))
-
-
-ifdef BUILD_PSP
-LIBS 	       += -lpspgu -lpspaudio -lpsppower -lpsprtc
-endif
-
 
 ifdef BUILD_DARWIN
 LIBS           += -Wl,-syslibroot,$(SDKPATH) \
@@ -567,29 +538,6 @@ endif
 LIBS           += -lpng -lz -lm
 
 #----------------------------------------------------------------------------------------------------
-# Rules to manage Files and Libraries for PSP
-#----------------------------------------------------------------------------------------------------
-
-ifdef BUILD_PSP
-%.o : %.c
-	@echo Compiling $(TARGET_PLATFORM) Port: $<...
-	@$(CC) $(CFLAGS) -c $< -o $@
-%.o : %.S
-	@echo Compiling $(TARGET_PLATFORM) Port: $<...
-	@$(CC) $(CFLAGS) -c $< -o $@
-INCDIR          = $(INCS)
-PSP_EBOOT_TITLE = $(VERSION_NAME) $(VERSION)
-PSP_EBOOT_ICON 	= resources/OpenBOR_Icon_144x80.png
-PSP_EBOOT_PIC1	= resources/OpenBOR_Logo_480x272.png
-PSP_FW_VERSION  = 371
-PSP_LARGE_MEMORY= 1
-BUILD_PRX       = 1
-include psp/build.mak
-endif
-
-
-
-#----------------------------------------------------------------------------------------------------
 # Rules to manage Files and Libraries for SDL
 #----------------------------------------------------------------------------------------------------
 
@@ -651,7 +599,6 @@ all:
 	@echo
 	@echo Build A TARGET_PLATFORM:
 	@echo
-	@echo make BUILD_PSP=1
 	@echo make BUILD_PS2=1
 	@echo make BUILD_WIN=1
 	@echo make BUILD_PANDORA=1
@@ -664,21 +611,6 @@ all:
 	@echo Remove All Files:
 	@echo
 	@echo make clean-all
-	@echo
-endif
-
-
-ifndef BUILD_PSP
-clean-all: clean-releases clean
-
-clean-releases:
-	@if [ -d ./releases ]; then rm -rf ./releases; fi
-
-clean:
-	@echo
-	@echo "Removing All $(TARGET_PLATFORM) Files..."
-	@rm -f $(TARGET) $(TARGET_FINAL) $(TARGET_MAP) PARAM.SFO param.sfo eboot.bin OpenBOR.velf linkmap $(OBJS)
-	@echo Done!
 	@echo
 endif
 

@@ -30,8 +30,6 @@
 #include <sys/sysinfo.h>
 #include <unistd.h>
 #include <features.h>
-#elif PSP
-#include "kernel/kernel.h"
 #elif GP2X
 #include "gp2xport.h"
 #elif OPENDINGUX
@@ -148,14 +146,6 @@ void setSystemRam()
     // 16 MBytes - Memory Map:
     systemRam = 0x8d000000 - 0x8c000000;
     elfOffset = 0x8c000000;
-#elif PSP
-    // 24 MBytes - Memory Map:
-    systemRam = 0x0A000000 - 0x08800000;
-    elfOffset = 0x08800000;
-    if (getHardwareModel() == 1)
-    {
-        systemRam += 32 * 1024 * 1024;
-    }
 #elif (GP2X && !WIZ)
     // 32 MBytes - Memory Map:
     systemRam = 0x02000000 - 0x00000000;

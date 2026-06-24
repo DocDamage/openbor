@@ -21,7 +21,6 @@ bash.exe build.sh all
 
 @setlocal
 @echo off
-@if not exist "%CD%\releases\PSP\OpenBOR\EBOOT.PBP" goto missing
 @if not exist "%CD%\releases\WINDOWS\OpenBOR\OpenBOR.exe" goto missing
 
 set TOOLS=../tools/bin;../tools/7-Zip;../tools/svn/bin

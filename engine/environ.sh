@@ -31,60 +31,6 @@ case $1 in
 
 ############################################################################
 #                                                                          #
-#                           PSP Environment                                #
-#                                                                          #
-############################################################################
-1) 
-     if [ ! -f "../tools/psp-sdk/psp-sdk.7z" ]; then
-		echo "-------------------------------------------------------"
-		echo "        PSP SDK File - Not Found, Downloading SDK!"
-		echo "-------------------------------------------------------"
-		wget https://github.com/DCurrent/openbor/raw/ecce29b95700468aa3401915625dac2d56e4ca60/tools/psp-sdk/psp-sdk.7z -O ../tools/psp-sdk/psp-sdk.7z
-		echo
-		echo "-------------------------------------------------------"
-		echo "        PSP SDK File - Download Has Completed!"
-		echo "-------------------------------------------------------"
-     fi
-
-   if test -e "C:/pspsdk"; then
-     export PSPDEV=C:/pspsdk
-     export PATH=$PATH:$PSPDEV/bin
-   elif test -e "c:/Cygwin/usr/local/pspdev"; then
-     export PSPDEV=c:/Cygwin/usr/local/pspdev
-     export PATH=$PATH:$PSPDEV/bin:C:/Cygwin/bin
-   elif test -e "/usr/local/pspdev"; then
-     export PSPDEV=/usr/local/pspdev
-     export PATH=$PATH:$PSPDEV/bin
-   elif [ `echo $HOST_PLATFORM | grep -E "windows|CYGWIN"` ]; then
-     if [ ! -d "../tools/psp-sdk/bin" ]; then
-       echo "-------------------------------------------------------"
-       echo "        PSP SDK - Not Found, Installing SDK!"
-       echo "-------------------------------------------------------"
-       ../tools/7-Zip/7za.exe x -y ../tools/psp-sdk/psp-sdk.7z -o../tools/psp-sdk/
-       echo
-       echo "-------------------------------------------------------"
-       echo "        PSP SDK - Installation Has Completed!"
-       echo "-------------------------------------------------------"
-     fi
-       export PSPDEV=../tools/psp-sdk
-       export PATH=$TOOLS:$PSPDEV/bin
-       HOST_PLATFORM="SVN";
-   fi
-   if test $PSPDEV; then
-     export PSPSDK=$PSPDEV/psp/sdk
-     echo "-------------------------------------------------------"
-     echo "          PSP SDK ($HOST_PLATFORM) Environment Loaded!"
-     echo "-------------------------------------------------------"
-   else
-     echo "-------------------------------------------------------"
-     echo "            ERROR - PSP Environment Failed"
-     echo "                   SDK Installed?"
-     echo "-------------------------------------------------------"
-   fi
-   ;;
-
-############################################################################
-#                                                                          #
 #                             Vita Environment                             #
 #                                                                          #
 ############################################################################
@@ -370,7 +316,6 @@ case $1 in
 *)
    echo
    echo "-------------------------------------------------------"
-   echo "   1 = PSP"
    echo "   2 = (Not Used)"   
    echo "   3 = Gp2x"
    echo "   4 = Linux"

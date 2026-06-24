@@ -2509,7 +2509,7 @@ void clearbuttons(int player)
 
     if (player == 0)
     {
-        savedata.keys[0][SDID_MOVEUP]    = CONTROL_DEFAULT1_UP; //Kratus (22-04-21) Maintain the key config only for player 1 because other modules like PSP will not work with CONTROL_NONE
+        savedata.keys[0][SDID_MOVEUP]    = CONTROL_DEFAULT1_UP; //Kratus (22-04-21) Maintain the key config only for player 1 because other modules will not work with CONTROL_NONE
         savedata.keys[0][SDID_MOVEDOWN]  = CONTROL_DEFAULT1_DOWN;
         savedata.keys[0][SDID_MOVELEFT]  = CONTROL_DEFAULT1_LEFT;
         savedata.keys[0][SDID_MOVERIGHT] = CONTROL_DEFAULT1_RIGHT;
@@ -18058,7 +18058,7 @@ int load_models()
 
     if(isLoadingScreenTypeBg(loadingbg[0].set))
     {
-        // New alternative background path for PSP
+        // New alternative background path.
         if(custBkgrds != NULL)
         {
             strcpy(tmpBuff, custBkgrds);
@@ -47091,7 +47091,7 @@ void hallfame(int addtoscore)
 
     if(hiscorebg)
     {
-        // New alternative background path for PSP
+        // New alternative background path.
         if(custBkgrds != NULL)
         {
             strcpy(tmpBuff, custBkgrds);
@@ -47176,7 +47176,7 @@ void showcomplete(int num)
 
     if(completebg)
     {
-        // New alternative background path for PSP
+        // New alternative background path.
         if(custBkgrds != NULL)
         {
             strcpy(tmpBuff, custBkgrds);
@@ -47823,7 +47823,7 @@ int selectplayer(int *players, char *filename, int useSavedGame)
 		{
 			if (unlockbg && bonus)
 			{
-				// New alternative background path for PSP
+				// New alternative background path.
 				if (custBkgrds != NULL)
 				{
 					strcpy(string, custBkgrds);
@@ -47837,7 +47837,7 @@ int selectplayer(int *players, char *filename, int useSavedGame)
 			}
 			else
 			{
-				// New alternative background path for PSP
+				// New alternative background path.
 				if (custBkgrds != NULL)
 				{
 					strcpy(string, custBkgrds);
@@ -50734,7 +50734,7 @@ void openborMain(int argc, char **argv)
     if(skiptoset < 0)
     {
 
-        // New alternative background path for PSP
+        // New alternative background path.
         if(custBkgrds != NULL)
         {
             strcpy(tmpBuff, custBkgrds);
@@ -50753,7 +50753,7 @@ void openborMain(int argc, char **argv)
 
         music("data/music/remix", 1, 0);
 
-        // New alternative scene path for PSP
+        // New alternative scene path.
         if(custScenes != NULL)
         {
             strcpy(tmpBuff, custScenes);
@@ -50773,7 +50773,7 @@ void openborMain(int argc, char **argv)
         {
             if(_time >= introtime)
             {
-                // New alternative scene path for PSP
+                // New alternative scene path.
                 if(custScenes != NULL)
                 {
                     strcpy(tmpBuff, custScenes);
