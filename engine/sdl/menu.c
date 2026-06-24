@@ -660,11 +660,8 @@ static void drawLogs()
 		putscreen(vscreen,logscreen,0,0,NULL);
 	    inputrefresh(0);
 	    sound_update_music();
-#if OPENDINGUX
-	    printText(250, 3, RED, 0, 0, "Quit : Select");
-#else
 	    printText((isWide ? 410 : 250), 3, RED, 0, 0, "Quit : Escape");
-#endif
+
 		if(bothnewkeys & FLAG_ESC) done = 1;
 
 		if(logfile[i].ready)

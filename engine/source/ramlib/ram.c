@@ -38,8 +38,6 @@
 #include <sys/sysinfo.h>
 #include <unistd.h>
 #include <features.h>
-#elif OPENDINGUX
-#include <stdlib.h>
 #endif
 
 #include <malloc.h>
@@ -103,21 +101,6 @@ u64 getFreeRam(int byte_size)
     struct sysinfo info;
     sysinfo(&info);
     return ((u64)info.freeram) * info.mem_unit;
-#elif OPENDINGUX
-    FILE *file = NULL;
-    const unsigned char size = 5;
-    const unsigned char pos = 47;
-    char result[size + 1];
-    file = fopen("/proc/meminfo", "r");
-    if (file == NULL)
-    {
-        return 0;
-    }
-    fseek(file, pos, SEEK_SET);
-    fread(result, sizeof(char), size, file);
-    fclose(file);
-    result[size] = '\0';
-    return (atoi(result) * 1024) / byte_size;
 #elif SYMBIAN
     return GetFreeAmount();
 #else
@@ -156,11 +139,6 @@ void setSystemRam()
     // 42 MBytes - Memory Map:
     systemRam = 0x029fffff - 0x0000a2e0;
     elfOffset = 0x0000a2e0;
-#elif OPENDINGUX
-    // 32 MBytes - IPU Memory:
-    //systemRam = 0x02000000 - 0x002C6000;
-    systemRam = 0x01c8c000;//Opendingux
-    elfOffset = 0x00000000;
 #else
     elfOffset = 0x00000000;
     stackSize = 0x00000000;

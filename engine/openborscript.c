@@ -9168,8 +9168,6 @@ int getsyspropertybyindex(ScriptVariant *var, int index)
                 porting = PORTING_DARWIN;
         #elif LINUX
                 porting = PORTING_LINUX;
-        #elif OPENDINGUX
-                porting = PORTING_OPENDINGUX;
         #elif WIN
                 porting = PORTING_WINDOWS;
         #elif WIZ

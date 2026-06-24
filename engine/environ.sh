@@ -143,29 +143,6 @@ case $1 in
        echo "-------------------------------------------------------"
    fi
    ;;
-
-############################################################################
-#                                                                          #
-#                          OpenDingux Environment                          #
-#                                                                          #
-############################################################################
-8)
-   if test -e "/opt/opendingux-toolchain"; then
-     export OPENDINGUX_TOOLCHAIN=/opt/opendingux-toolchain
-     export OPENDINGUX_TOOLCHAIN_PREFIX=$OPENDINGUX_TOOLCHAIN/usr
-     export PATH=$PATH:$OPENDINGUX_TOOLCHAIN/usr/bin
-   fi
-   if test $OPENDINGUX_TOOLCHAIN; then
-     echo "-------------------------------------------------------"
-     echo "    OPENDINGUX SDK ($HOST_PLATFORM) Environment Loaded!"
-     echo "-------------------------------------------------------"
-   else
-     echo "-------------------------------------------------------"
-     echo "            ERROR - OPENDINGUX Environment Failed"
-     echo "                    SDK Installed?"
-     echo "-------------------------------------------------------"
-   fi
-   ;;
    
 ############################################################################
 #                                                                          #
@@ -250,7 +227,6 @@ case $1 in
    echo "   2 = (Not Used)"
    echo "   4 = Linux"
    echo "   5 = Windows"
-   echo "   8 = OpenDingux"
    echo "   9 = Wiz"
    echo "  10 = Darwin"
    echo "-------------------------------------------------------"
