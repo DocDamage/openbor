@@ -9166,8 +9166,6 @@ int getsyspropertybyindex(ScriptVariant *var, int index)
                 porting = PORTING_ANDROID;
         #elif DARWIN
                 porting = PORTING_DARWIN;
-        #elif GPX2
-                porting = PORTING_GPX2;
         #elif LINUX
                 porting = PORTING_LINUX;
         #elif OPENDINGUX
@@ -9178,8 +9176,6 @@ int getsyspropertybyindex(ScriptVariant *var, int index)
                 porting = PORTING_WIZ;
         #elif XBOX
                 porting = PORTING_XBOX;
-        #elif VITA
-                porting = PORTING_VITA;
         #else
                 porting = PORTING_UNKNOWN;
         #endif

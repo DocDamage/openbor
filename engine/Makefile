@@ -308,16 +308,6 @@ SOURCE	        = source/stringptr.o                                             
                   source/omath.o
 
 
-ifdef BUILD_VITA
-GAME_CONSOLE    = vita/control.o                                                                     \
-                  vita/sblaster.o                                                                    \
-                  vita/timer.o                                                                       \
-                  vita/video.o                                                                       \
-                  vita/vitaport.o                                                                    \
-                  vita/menu.o
-endif
-
-
 ifdef BUILD_SDL
 GAME	       += source/gamelib/filters.o
 endif
@@ -415,10 +405,6 @@ ifdef BUILD_PANDORA
 CFLAGS         += -DLINUX
 endif
 
-ifdef BUILD_VITA
-CFLAGS 	       += -DCACHE_BACKGROUNDS -Wl,-q
-endif
-
 
 ifdef BUILD_MMX
 CFLAGS 	       += -DMMX
@@ -505,12 +491,6 @@ ifdef BUILD_PTHREAD
 LIBS           += -lpthread
 endif
 
-ifdef BUILD_VITA
-LIBS           += -lvita2d -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub \
-	              -lSceSysmodule_stub -lSceCtrl_stub -lScePgf_stub \
-	              -lSceCommonDialog_stub -lSceAudio_stub -lfreetype -ljpeg
-endif
-
 
 ifdef BUILD_STATIC
 LIBS           += -static
@@ -561,34 +541,6 @@ $(TARGET_FINAL) : $(TARGET)
 	@echo Completed $(TARGET_PLATFORM) Port!
 	@echo $(TARGET_FINAL) is now ready!
 endif
-
-#----------------------------------------------------------------------------------------------------
-# Rules to manage Files and Libraries for Vita
-#----------------------------------------------------------------------------------------------------
-
-ifdef BUILD_VITA
-all : OpenBOR.vpk
-	@echo
-%.o : %.c
-	@echo Compiling $(TARGET_PLATFORM) Port: $<...
-	@$(CC) $(CFLAGS) -c $< -o $@
-OpenBOR.elf : $(OBJS) $(RES)
-	@echo
-	@echo Linking $(TARGET_PLATFORM) Port: $(TARGET)...
-	@$(CC) $(CFLAGS) -o $(TARGET) $(OBJS) $(TARGET_RESOURCE) $(LIBS)
-%.velf: %.elf
-	vita-elf-create $< $@
-eboot.bin: $(VERSION_NAME).velf
-	vita-make-fself -s $< $@
-OpenBOR.vpk: eboot.bin
-	@echo Stripping $(TARGET_PLATFORM) Port: $(TARGET_FINAL)...
-	vita-mksfoex -s TITLE_ID=$(TITLE_ID) "OpenBOR" param.sfo
-	vita-pack-vpk -s param.sfo -b eboot.bin --add resources/vita_icon.png=sce_sys/icon0.png $@
-	@echo
-	@echo Completed $(TARGET_PLATFORM) Port!
-	@echo $(TARGET_FINAL) is now ready!
-endif
-
 
 #----------------------------------------------------------------------------------------------------
 # Rules to CleanUp Files for All Platforms

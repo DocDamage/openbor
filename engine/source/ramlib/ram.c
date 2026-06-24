@@ -161,15 +161,12 @@ void setSystemRam()
     //systemRam = 0x02000000 - 0x002C6000;
     systemRam = 0x01c8c000;//Opendingux
     elfOffset = 0x00000000;
-#elif VITA
-    systemRam = 0x0f000000;
-    elfOffset = 0x00000000;
 #else
     elfOffset = 0x00000000;
     stackSize = 0x00000000;
     systemRam = getFreeRam(BYTES);
 #endif
-#if !(defined(WIN) || defined(LINUX) || defined(DARWIN) || defined(SYMBIAN) || defined(VITA))
+#if !(defined(WIN) || defined(LINUX) || defined(DARWIN) || defined(SYMBIAN))
     stackSize = (int)&_end - (int)&_start + ((int)&_start - elfOffset);
 #endif
     getRamStatus(BYTES);
