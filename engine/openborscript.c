@@ -9170,8 +9170,6 @@ int getsyspropertybyindex(ScriptVariant *var, int index)
                 porting = PORTING_LINUX;
         #elif WIN
                 porting = PORTING_WINDOWS;
-        #elif XBOX
-                porting = PORTING_XBOX;
         #else
                 porting = PORTING_UNKNOWN;
         #endif

@@ -467,7 +467,6 @@ typedef enum
     PORTING_LINUX,
     PORTING_UNKNOWN,
     PORTING_WINDOWS
-    PORTING_XBOX
 } e_porting;
 
 // Caskey, Damon V.

@@ -25,7 +25,6 @@ bash.exe build.sh all
 
 set TOOLS=../tools/bin;../tools/7-Zip;../tools/svn/bin
 set PATH=%TOOLS%;%PATH%
-call xbox/make.bat
 bash.exe version.sh 1
 :missing
 @endlocal
