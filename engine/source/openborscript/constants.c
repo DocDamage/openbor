@@ -1358,15 +1358,9 @@ int mapstrings_transconst(ScriptVariant **varlist, int paramCount)
         /* Ports */
         ICMPCONST(PORTING_ANDROID)
         ICMPCONST(PORTING_DARWIN)
-        ICMPCONST(PORTING_DREAMCAST)
-        ICMPCONST(PORTING_GPX2)
         ICMPCONST(PORTING_LINUX)
-        ICMPCONST(PORTING_OPENDINGUX)
-        ICMPCONST(PORTING_PSP)
         ICMPCONST(PORTING_UNKNOWN)
         ICMPCONST(PORTING_WINDOWS)
-        ICMPCONST(PORTING_WIZ)
-        ICMPCONST(PORTING_XBOX)
 
         /* Projectile spawn settings. */
         ICMPCONST(PROJECTILE_PRIME_BASE_FLOOR)

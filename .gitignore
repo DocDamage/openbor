@@ -15,9 +15,7 @@ engine/resources/OpenBOR.res
 tools/bin/.wget-hsts
 tools/win-sdk/*
 !tools/win-sdk/win-sdk.7z
-tools/psp-sdk/*
 /openbor_vs
-engine/ios/Build
 **/.DS_Store
 tools/borpak/source/borpak
 build/

@@ -9166,24 +9166,10 @@ int getsyspropertybyindex(ScriptVariant *var, int index)
                 porting = PORTING_ANDROID;
         #elif DARWIN
                 porting = PORTING_DARWIN;
-        #elif DC
-                porting = PORTING_DREAMCAST;
-        #elif GPX2
-                porting = PORTING_GPX2;
         #elif LINUX
                 porting = PORTING_LINUX;
-        #elif OPENDINGUX
-                porting = PORTING_OPENDINGUX;
-        #elif PSP
-                porting = PORTING_PSP;
         #elif WIN
                 porting = PORTING_WINDOWS;
-        #elif WIZ
-                porting = PORTING_WIZ;
-        #elif XBOX
-                porting = PORTING_XBOX;
-        #elif VITA
-                porting = PORTING_VITA;
         #else
                 porting = PORTING_UNKNOWN;
         #endif

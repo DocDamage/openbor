@@ -570,7 +570,6 @@ void filecache_init(int realfd, int pakcdsectors, int blocksize, unsigned char b
 
     // align the filecache
     // we can lose this pointer since it'll never be freed anyway and can be reused while running bor
-    // When we exit with sceKernalExitGame All resources are Freed up prior to returning to PSP OS.
     filecache += 0x40 - (((size_t)filecache) & 0x3F);
 
     // pakmap: all values should be -1
